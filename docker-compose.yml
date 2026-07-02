@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: synccinema_backend
+    restart: unless-stopped
+    environment:
+      - ALLOWED_ORIGIN=* # In production, set this to your frontend URL
+      # - NODE_ENV=production
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Nginx üzerinden proxy yaptığımız için Socket.io direkt aynı adrese (/) bağlanacak.
+        - VITE_SOCKET_URL=/
+    container_name: synccinema_frontend
+    restart: unless-stopped
+    ports:
+      - "8050:80"
+    depends_on:
+      - backend
