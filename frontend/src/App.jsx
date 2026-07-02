@@ -8,6 +8,10 @@ const SYNC_INTERVAL_MS = 5000;
 const REACTIONS = ["❤️", "😂", "😮", "👏", "😢", "🔥", "🎉", "👍"];
 
 export default function App() {
+  // --- Site Şifresi State ---
+  const [authPass, setAuthPass] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
   // --- Bağlantı & Oda State ---
   const [connected, setConnected] = useState(false);
   const [joined, setJoined] = useState(false);
@@ -491,6 +495,45 @@ export default function App() {
     if (abs < 1.5) return "warn";
     return "danger";
   };
+
+  // =================================================================
+  // ŞİFRE EKRANI (GEÇİCİ KORUMA)
+  // =================================================================
+  if (!isAuthenticated) {
+    return (
+      <div className="lobby">
+        <div className="lobby-card" style={{ textAlign: "center" }}>
+          <h1 className="lobby-brand">
+            Sync<span>Cinema</span>
+          </h1>
+          <p className="lobby-tagline">Sistem şu an kapalı betadadır.</p>
+          <label className="field-label">Giriş Şifresi</label>
+          <input
+            type="password"
+            className="field-input"
+            placeholder="Şifreyi giriniz"
+            value={authPass}
+            onChange={(e) => setAuthPass(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && authPass === "12345") {
+                setIsAuthenticated(true);
+              }
+            }}
+          />
+          <button
+            className="enter-btn"
+            style={{ marginTop: "1rem" }}
+            onClick={() => {
+              if (authPass === "12345") setIsAuthenticated(true);
+              else alert("Hatalı şifre!");
+            }}
+          >
+            Giriş Yap
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // =================================================================
   // LOBİ EKRANI
