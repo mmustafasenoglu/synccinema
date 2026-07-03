@@ -870,10 +870,22 @@ body {
 
 /* ---------- ALTYAZI STİLLERİ ---------- */
 video::cue {
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.85);
   color: #fff;
-  font-size: 16px;
+  font-size: clamp(14px, 2.5vw, 22px);
   font-family: "Inter", sans-serif;
-  border-radius: 4px;
-  padding: 4px 8px;
+  font-weight: 500;
+  border-radius: 6px;
+  padding: 6px 12px;
+  line-height: 1.4;
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+}
+
+video::-webkit-media-text-track-container {
+  max-width: 80%;
+  margin: 0 auto;
+}
+
+video::-webkit-media-text-track-display {
+  bottom: 8% !important;
 }
