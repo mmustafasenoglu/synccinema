@@ -87,12 +87,22 @@ export default function App() {
     });
     socketRef.current = socket;
 
-    socket.on("connect", () => setConnected(true));
+    socket.on("connect", () => {
+      setConnected(true);
+      const savedSession = loadSession();
+      const savedRoom = roomNameRef.current || savedSession?.roomName;
+      const savedName = myName || savedSession?.myName;
+      if (savedRoom && savedName) {
+        socket.emit("join_room", { roomName: savedRoom, userName: savedName.trim() });
+        socket.emit("request_sync", { room: savedRoom });
+      }
+    });
     socket.on("disconnect", () => setConnected(false));
 
     socket.on("reconnect", () => {
-      const savedRoom = roomNameRef.current;
-      const savedName = myName || loadSession()?.myName;
+      const savedSession = loadSession();
+      const savedRoom = roomNameRef.current || savedSession?.roomName;
+      const savedName = myName || savedSession?.myName;
       if (savedRoom && savedName) {
         socket.emit("join_room", { roomName: savedRoom, userName: savedName.trim() });
         socket.emit("request_sync", { room: savedRoom });
