@@ -28,7 +28,7 @@ function createServer() {
     res.send("SyncCinema backend çalışıyor 🎬");
   });
 
-  const roomUserCounts = {};
+  const roomUserCounts = {}; // Artık sadece test için tutulur, gerçek sayım Socket.io'dan alınır
   const roomPlaybackState = {};
 
   function getRoomUsers(roomName) {
@@ -62,8 +62,12 @@ function createServer() {
 
       if (!roomName) return;
 
-      const currentCount = roomUserCounts[roomName] || 0;
+      // Gerçek üye sayısını Socket.io'dan al (manuel sayaç yerine)
+      const currentCount = io.sockets.adapter.rooms.get(roomName)?.size || 0;
+      console.log(`[join_room] Oda: ${roomName}, Mevcut üye: ${currentCount}, Katılan: ${userName}`);
+
       if (currentCount >= 2) {
+        console.log(`[join_room] Oda dolu: ${roomName}`);
         socket.emit("room_full", { message: "Bu oda dolu (2/2). Farklı bir kod deneyin." });
         return;
       }
@@ -72,14 +76,17 @@ function createServer() {
       socket.data.room = roomName;
       socket.data.userName = userName || "Misafir";
 
-      roomUserCounts[roomName] = currentCount + 1;
-      const isSecondParticipant = roomUserCounts[roomName] === 2;
+      // join sonrası gerçek sayıyı al
+      const newCount = io.sockets.adapter.rooms.get(roomName)?.size || 1;
+      roomUserCounts[roomName] = newCount;
+      const isSecondParticipant = newCount === 2;
 
       const users = getRoomUsers(roomName);
+      console.log(`[join_room] Oda: ${roomName}, Yeni üye sayısı: ${newCount}, Kullanıcılar: ${users.map(u => u.userName).join(", ")}`);
 
       socket.to(roomName).emit("user_joined", {
         message: `${socket.data.userName} odaya katıldı.`,
-        userCount: roomUserCounts[roomName],
+        userCount: newCount,
         users: users,
         autoVoice: isSecondParticipant,
         voiceMode: isSecondParticipant ? "initiator" : "waiting"
@@ -87,7 +94,7 @@ function createServer() {
 
       socket.emit("room_status", {
         room: roomName,
-        userCount: roomUserCounts[roomName],
+        userCount: newCount,
         users: users,
         autoVoice: isSecondParticipant,
         voiceMode: isSecondParticipant ? "receiver" : "waiting"
@@ -160,14 +167,23 @@ function createServer() {
 
     socket.on("disconnect", () => {
       const room = socket.data.room;
-      if (room && roomUserCounts[room]) {
-        roomUserCounts[room] = Math.max(0, roomUserCounts[room] - 1);
+      if (room) {
+        // disconnect sonrası socket zaten odadan çıktı, gerçek sayıyı al
+        const remaining = io.sockets.adapter.rooms.get(room)?.size || 0;
+        roomUserCounts[room] = remaining;
+        console.log(`[disconnect] ${socket.data.userName || "?"}  ayrıldı. Oda: ${room}, Kalan: ${remaining}`);
         const users = getRoomUsers(room);
         socket.to(room).emit("user_left", {
           message: `${socket.data.userName || "Karşı taraf"} bağlantısı kesildi — video duraklatıldı.`,
-          userCount: roomUserCounts[room],
+          userCount: remaining,
           users: users
         });
+        // Oda tamamen boşaldıysa playback state'i temizle
+        if (remaining === 0) {
+          delete roomPlaybackState[room];
+          delete roomUserCounts[room];
+          console.log(`[disconnect] Oda silindi: ${room}`);
+        }
       }
     });
   });
