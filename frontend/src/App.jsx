@@ -49,6 +49,8 @@ export default function App() {
   const [showSyncFlash, setShowSyncFlash] = useState(false);
   const [fileMismatch, setFileMismatch] = useState(false);
   const [peerTimeDiff, setPeerTimeDiff] = useState(null);
+  const [subtitleSrc, setSubtitleSrc] = useState(null);
+  const [subtitleName, setSubtitleName] = useState("");
 
   // --- Chat State ---
   const [messages, setMessages] = useState([]);
@@ -482,6 +484,14 @@ export default function App() {
     tempVideo.src = url;
   };
 
+  const handleSubtitleSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setSubtitleSrc(url);
+    setSubtitleName(file.name);
+  };
+
   // ---------------------------------------------------------------
   // VİDEO EVENT HANDLER'LARI
   // ---------------------------------------------------------------
@@ -770,20 +780,52 @@ export default function App() {
                   style={{ display: "none" }}
                 />
               </label>
+              <div style={{ marginTop: 12, fontSize: 12, opacity: 0.6 }}>
+                Altyazı dosyası seçmek isteğe bağlı (SRT, VTT)
+              </div>
+              <label className="picker-label" style={{ background: "var(--panel-2)", color: "var(--text)", border: "1px solid var(--border)" }}>
+                Altyazı Seç (opsiyonel)
+                <input
+                  type="file"
+                  accept=".srt,.vtt,.sub"
+                  onChange={handleSubtitleSelect}
+                  style={{ display: "none" }}
+                />
+              </label>
+              {subtitleName && (
+                <div style={{ marginTop: 8, fontSize: 12, color: "var(--sync)" }}>
+                  ✓ {subtitleName} yüklendi
+                </div>
+              )}
             </div>
           ) : (
             <>
               <video
                 ref={videoRef}
                 src={videoSrc}
-                controls={isAdmin} // Sadece admin kontrol edebilir
+                controls={isAdmin}
                 onPlay={handlePlay}
                 onPause={handlePause}
                 onSeeked={handleSeeked}
-              />
+              >
+                {subtitleSrc && (
+                  <track
+                    src={subtitleSrc}
+                    kind="subtitles"
+                    srcLang="tr"
+                    label="Türkçe"
+                    default
+                  />
+                )}
+              </video>
               {!isAdmin && peerCount > 1 && (
                 <div className="admin-only-banner">
                   ⚠️ Sadece oda sahibi videoyu kontrol edebilir
+                </div>
+              )}
+              {subtitleSrc && (
+                <div className="subtitle-indicator">
+                  💬 Altyazı: {subtitleName}
                 </div>
               )}
               <div className={`sync-flash ${showSyncFlash ? "show" : ""}`}>

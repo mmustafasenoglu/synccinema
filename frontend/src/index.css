@@ -851,3 +851,29 @@ body {
   background: rgba(217, 83, 79, 0.15) !important;
   border-color: var(--danger) !important;
 }
+
+/* ---------- ALTYAZI GÖSTERGESİ ---------- */
+.subtitle-indicator {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(43, 179, 163, 0.15);
+  border: 1px solid rgba(43, 179, 163, 0.5);
+  color: var(--sync);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 100px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* ---------- ALTYAZI STİLLERİ ---------- */
+video::cue {
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  font-size: 16px;
+  font-family: "Inter", sans-serif;
+  border-radius: 4px;
+  padding: 4px 8px;
+}
