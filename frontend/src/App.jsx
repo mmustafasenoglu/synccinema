@@ -53,6 +53,22 @@ export default function App() {
   const [subtitleSrc, setSubtitleSrc] = useState(null);
   const [subtitleName, setSubtitleName] = useState("");
 
+  // --- Altyazı Ayarları (localStorage'dan oku) ---
+  const loadSubtitleSettings = () => {
+    try {
+      const saved = localStorage.getItem("synccinema_subtitle_settings");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { fontSize: 18, top: 15, left: 2, opacity: 85, color: "#ffffff", bgOpacity: 85 };
+  };
+  const [subtitleSettings, setSubtitleSettings] = useState(loadSubtitleSettings);
+  const [showSubtitleSettings, setShowSubtitleSettings] = useState(false);
+
+  // Ayarları kaydet
+  useEffect(() => {
+    localStorage.setItem("synccinema_subtitle_settings", JSON.stringify(subtitleSettings));
+  }, [subtitleSettings]);
+
   // --- Chat State ---
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
@@ -874,7 +890,7 @@ export default function App() {
                 </div>
               )}
             </div>
-          ) : (
+           ) : (
             <>
               <video
                 ref={videoRef}
@@ -883,6 +899,13 @@ export default function App() {
                 onPlay={handlePlay}
                 onPause={handlePause}
                 onSeeked={handleSeeked}
+                style={{
+                  "--sub-font-size": subtitleSettings.fontSize + "px",
+                  "--sub-top": subtitleSettings.top + "%",
+                  "--sub-left": subtitleSettings.left + "%",
+                  "--sub-bg-opacity": subtitleSettings.bgOpacity / 100,
+                  "--sub-color": subtitleSettings.color
+                }}
               >
                 {subtitleSrc && (
                   <track
@@ -902,6 +925,42 @@ export default function App() {
               {subtitleSrc && (
                 <div className="subtitle-indicator">
                   💬 Altyazı: {subtitleName}
+                  <button 
+                    className="subtitle-settings-btn"
+                    onClick={() => setShowSubtitleSettings(!showSubtitleSettings)}
+                  >
+                    ⚙️
+                  </button>
+                </div>
+              )}
+              {showSubtitleSettings && (
+                <div className="subtitle-settings-panel">
+                  <div className="subtitle-settings-title">Altyazı Ayarları</div>
+                  <div className="subtitle-setting">
+                    <label>Boyut: {subtitleSettings.fontSize}px</label>
+                    <input type="range" min="12" max="36" value={subtitleSettings.fontSize}
+                      onChange={(e) => setSubtitleSettings({...subtitleSettings, fontSize: Number(e.target.value)})} />
+                  </div>
+                  <div className="subtitle-setting">
+                    <label>Dikey Konum: %{subtitleSettings.top}</label>
+                    <input type="range" min="5" max="80" value={subtitleSettings.top}
+                      onChange={(e) => setSubtitleSettings({...subtitleSettings, top: Number(e.target.value)})} />
+                  </div>
+                  <div className="subtitle-setting">
+                    <label>Yatay Konum: %{subtitleSettings.left}</label>
+                    <input type="range" min="0" max="50" value={subtitleSettings.left}
+                      onChange={(e) => setSubtitleSettings({...subtitleSettings, left: Number(e.target.value)})} />
+                  </div>
+                  <div className="subtitle-setting">
+                    <label>Arka Plan: %{subtitleSettings.bgOpacity}</label>
+                    <input type="range" min="0" max="100" value={subtitleSettings.bgOpacity}
+                      onChange={(e) => setSubtitleSettings({...subtitleSettings, bgOpacity: Number(e.target.value)})} />
+                  </div>
+                  <div className="subtitle-setting">
+                    <label>Renk:</label>
+                    <input type="color" value={subtitleSettings.color}
+                      onChange={(e) => setSubtitleSettings({...subtitleSettings, color: e.target.value})} />
+                  </div>
                 </div>
               )}
               <div className={`sync-flash ${showSyncFlash ? "show" : ""}`}>

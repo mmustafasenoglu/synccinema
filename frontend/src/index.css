@@ -864,15 +864,93 @@ body {
   font-weight: 600;
   padding: 6px 12px;
   border-radius: 100px;
-  pointer-events: none;
+  pointer-events: auto;
   z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.subtitle-settings-btn {
+  background: rgba(255,255,255,0.2);
+  border: none;
+  color: #fff;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.subtitle-settings-btn:hover {
+  background: rgba(255,255,255,0.3);
+}
+
+/* ---------- ALTYAZI AYARLAR PANELİ ---------- */
+.subtitle-settings-panel {
+  position: absolute;
+  top: 60px;
+  right: 16px;
+  background: rgba(18, 21, 28, 0.95);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  z-index: 20;
+  min-width: 220px;
+}
+
+.subtitle-settings-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.subtitle-setting {
+  margin-bottom: 10px;
+}
+
+.subtitle-setting label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.subtitle-setting input[type="range"] {
+  width: 100%;
+  height: 4px;
+  -webkit-appearance: none;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+}
+
+.subtitle-setting input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+.subtitle-setting input[type="color"] {
+  width: 100%;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  cursor: pointer;
 }
 
 /* ---------- ALTYAZI STİLLERİ ---------- */
 video::cue {
-  background: rgba(0, 0, 0, 0.85);
-  color: #fff;
-  font-size: clamp(14px, 2.5vw, 22px);
+  background: rgba(0, 0, 0, var(--sub-bg-opacity, 0.85));
+  color: var(--sub-color, #fff);
+  font-size: var(--sub-font-size, 18px);
   font-family: "Inter", sans-serif;
   font-weight: 500;
   border-radius: 6px;
@@ -884,12 +962,12 @@ video::cue {
 video::-webkit-media-text-track-container {
   max-width: 70%;
   margin: 0;
-  margin-left: 2%;
+  margin-left: var(--sub-left, 2%);
 }
 
 video::-webkit-media-text-track-display {
-  top: 15% !important;
+  top: var(--sub-top, 15%) !important;
   bottom: auto !important;
-  left: 2% !important;
+  left: var(--sub-left, 2%) !important;
   right: auto !important;
 }
