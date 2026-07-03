@@ -7,16 +7,33 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:3001";
 const SYNC_INTERVAL_MS = 5000;
 const REACTIONS = ["❤️", "😂", "😮", "👏", "😢", "🔥", "🎉", "👍"];
 
+function loadSession() {
+  try {
+    const raw = localStorage.getItem("synccinema_session");
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
+function saveSession(data) {
+  try {
+    if (data) localStorage.setItem("synccinema_session", JSON.stringify(data));
+    else localStorage.removeItem("synccinema_session");
+  } catch {}
+}
+
 export default function App() {
+  const saved = loadSession();
+
   // --- Site Şifresi State ---
   const [authPass, setAuthPass] = useState("");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(Boolean(saved?.roomName && saved?.myName));
 
   // --- Bağlantı & Oda State ---
   const [connected, setConnected] = useState(false);
-  const [joined, setJoined] = useState(false);
-  const [roomName, setRoomName] = useState("");
-  const [myName, setMyName] = useState("");
+  const [joined, setJoined] = useState(Boolean(saved?.roomName && saved?.myName));
+  const [roomName, setRoomName] = useState(saved?.roomName || "");
+  const [myName, setMyName] = useState(saved?.myName || "");
   const [peerCount, setPeerCount] = useState(1);
   const [peerName, setPeerName] = useState("");
   const [systemNotice, setSystemNotice] = useState("");
@@ -50,6 +67,7 @@ export default function App() {
   const syncFlashTimeout = useRef(null);
   const typingTimerRef = useRef(null);
   const emojiIdRef = useRef(0);
+  const roomNameRef = useRef(roomName);
 
   // WebRTC Refs
   const peerRef = useRef(null);
@@ -73,9 +91,11 @@ export default function App() {
     socket.on("disconnect", () => setConnected(false));
 
     socket.on("reconnect", () => {
-      if (socket.data?.room && myName) {
-        socket.emit("join_room", { roomName: socket.data.room, userName: myName.trim() });
-        socket.emit("request_sync", { room: socket.data.room });
+      const savedRoom = roomNameRef.current;
+      const savedName = myName || loadSession()?.myName;
+      if (savedRoom && savedName) {
+        socket.emit("join_room", { roomName: savedRoom, userName: savedName.trim() });
+        socket.emit("request_sync", { room: savedRoom });
       }
     });
 
@@ -129,6 +149,8 @@ export default function App() {
     socket.on("room_full", (data) => {
       setLobbyError(data.message || "Bu oda dolu. Farklı bir kod deneyin.");
       setJoined(false);
+      setRoomName("");
+      saveSession(null);
     });
 
     // --- WebRTC Sinyalleşme ---
@@ -242,6 +264,20 @@ export default function App() {
       socket.disconnect();
     };
   }, []);
+
+  // roomNameRef'i her değişiklikte güncelle
+  useEffect(() => {
+    roomNameRef.current = roomName;
+  }, [roomName]);
+
+  // Session'ı localStorage'a kaydet
+  useEffect(() => {
+    if (isAuthenticated && joined && roomName && myName) {
+      saveSession({ roomName, myName });
+    } else {
+      saveSession(null);
+    }
+  }, [isAuthenticated, joined, roomName, myName]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });

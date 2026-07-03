@@ -20,11 +20,17 @@ vi.mock('socket.io-client', () => {
 describe('App Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
-  test('renders lobby initially with disabled buttons', () => {
+  test('renders lobby initially with disabled buttons', async () => {
     render(<App />);
-    
+
+    // Şifre ekranını geç
+    const passInput = screen.getByPlaceholderText(/Şifreyi giriniz/i);
+    await userEvent.type(passInput, '12345');
+    await userEvent.click(screen.getByText(/Giriş Yap/i));
+
     expect(screen.getByText(/Sync/i)).toBeInTheDocument();
     expect(screen.getByText(/Cinema/i)).toBeInTheDocument();
     
@@ -40,6 +46,11 @@ describe('App Component', () => {
     const socket = io();
     
     render(<App />);
+
+    // Şifre ekranını geç
+    const passInput = screen.getByPlaceholderText(/Şifreyi giriniz/i);
+    await userEvent.type(passInput, '12345');
+    await userEvent.click(screen.getByText(/Giriş Yap/i));
     
     const connectHandler = socket.on.mock.calls.find(call => call[0] === 'connect')[1];
     act(() => {
@@ -72,6 +83,11 @@ describe('App Component', () => {
     const socket = io();
     
     render(<App />);
+
+    // Şifre ekranını geç
+    const passInput = screen.getByPlaceholderText(/Şifreyi giriniz/i);
+    await userEvent.type(passInput, '12345');
+    await userEvent.click(screen.getByText(/Giriş Yap/i));
     
     // Connect
     const connectHandler = socket.on.mock.calls.find(call => call[0] === 'connect')[1];
