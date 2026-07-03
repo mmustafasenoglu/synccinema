@@ -31,6 +31,32 @@ function createServer() {
   const roomUserCounts = {}; // Artık sadece test için tutulur, gerçek sayım Socket.io'dan alınır
   const roomPlaybackState = {};
   const roomAdmins = {}; // Oda sahibini takip et (socket.id değil, userName olarak)
+  const roomTimers = {}; // Oda zamanlayıcıları
+  const ROOM_TIMEOUT_MS = 30 * 60 * 1000; // 30 dakika
+
+  function startRoomTimer(roomName) {
+    if (roomTimers[roomName]) return; // Zaten zamanlayıcı var
+    console.log(`[timer] Oda için 30 dakikalık zamanlayıcı başlatıldı: ${roomName}`);
+    roomTimers[roomName] = setTimeout(() => {
+      // Oda hala boş mu kontrol et
+      const remaining = io.sockets.adapter.rooms.get(roomName)?.size || 0;
+      if (remaining === 0) {
+        delete roomPlaybackState[roomName];
+        delete roomUserCounts[roomName];
+        delete roomAdmins[roomName];
+        delete roomTimers[roomName];
+        console.log(`[timer] Oda zaman aşımı ile silindi: ${roomName}`);
+      }
+    }, ROOM_TIMEOUT_MS);
+  }
+
+  function cancelRoomTimer(roomName) {
+    if (roomTimers[roomName]) {
+      clearTimeout(roomTimers[roomName]);
+      delete roomTimers[roomName];
+      console.log(`[timer] Oda zamanlayıcısı iptal edildi: ${roomName}`);
+    }
+  }
 
   function getRoomUsers(roomName) {
     const clients = io.sockets.adapter.rooms.get(roomName);
@@ -77,6 +103,9 @@ function createServer() {
       socket.join(roomName);
       socket.data.room = roomName;
       socket.data.userName = userName || "Misafir";
+
+      // Zamanlayıcıyı iptal et (birisi odaya girdi)
+      cancelRoomTimer(roomName);
 
       // join sonrası gerçek sayıyı al
       const newCount = io.sockets.adapter.rooms.get(roomName)?.size || 1;
@@ -207,11 +236,9 @@ function createServer() {
           userCount: remaining,
           users: users
         });
-        // Oda tamamen boşaldıysa playback state'i temizle
+        // Oda tamamen boşaldıysa zamanlayıcı başlat
         if (remaining === 0) {
-          delete roomPlaybackState[room];
-          delete roomUserCounts[room];
-          console.log(`[disconnect] Oda silindi: ${room}`);
+          startRoomTimer(room);
         }
       }
     });
