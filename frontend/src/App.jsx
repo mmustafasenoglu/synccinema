@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { io } from "socket.io-client";
 import Peer from "simple-peer";
+import MP4Box from "mp4box";
 import "./index.css";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:3001";
@@ -331,6 +332,31 @@ export default function App() {
     return () => clearInterval(interval);
   }, [joined, videoSrc, roomName]);
 
+  // Gömülü altyazıları otomatik aktif et
+  useEffect(() => {
+    if (!videoSrc || !videoRef.current) return;
+    const video = videoRef.current;
+
+    const enableSubtitles = () => {
+      if (video.textTracks) {
+        for (let i = 0; i < video.textTracks.length; i++) {
+          const track = video.textTracks[i];
+          if (track.kind === "subtitles" || track.kind === "captions" || track.kind === "metadata") {
+            track.mode = "showing";
+          }
+        }
+      }
+    };
+
+    video.addEventListener("loadedmetadata", enableSubtitles);
+    video.addEventListener("loadeddata", enableSubtitles);
+
+    return () => {
+      video.removeEventListener("loadedmetadata", enableSubtitles);
+      video.removeEventListener("loadeddata", enableSubtitles);
+    };
+  }, [videoSrc]);
+
   useEffect(() => {
     if (!joined || !videoSrc || micEnabled) return;
     if (!voiceAutoConfig.autoVoice || voiceAutoStartedRef.current) return;
@@ -465,7 +491,51 @@ export default function App() {
   // ---------------------------------------------------------------
   // DOSYA SEÇİMİ
   // ---------------------------------------------------------------
-  const handleFileSelect = (e) => {
+  const extractEmbeddedSubtitles = (file) => {
+    return new Promise((resolve) => {
+      try {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const arrayBuffer = e.target.result;
+          const mp4boxFile = MP4Box.createFile();
+          const subtitleTracks = [];
+
+          mp4boxFile.onReady = (info) => {
+            info.tracks.forEach((track) => {
+              if (track.type === "text" || track.codec && (
+                track.codec.includes("text") || 
+                track.codec.includes("subt") ||
+                track.codec.includes("stpp") ||
+                track.codec.includes("wvtt") ||
+                track.kind === "subtitles"
+              )) {
+                subtitleTracks.push({
+                  id: track.id,
+                  codec: track.codec,
+                  language: track.language || "und",
+                  name: track.name || "Altyazı"
+                });
+              }
+            });
+            resolve(subtitleTracks);
+          };
+
+          mp4boxFile.onError = () => resolve([]);
+          
+          const chunk = new Uint8Array(arrayBuffer.slice(0, 1024 * 1024));
+          chunk.fileStart = 0;
+          mp4boxFile.appendBuffer(chunk);
+          mp4boxFile.flush();
+        };
+        reader.onerror = () => resolve([]);
+        reader.readAsArrayBuffer(file.slice(0, 1024 * 1024));
+      } catch {
+        resolve([]);
+      }
+    });
+  };
+
+  const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const url = URL.createObjectURL(file);
@@ -482,6 +552,12 @@ export default function App() {
       }
     };
     tempVideo.src = url;
+
+    // Gömülü altyazıyı kontrol et
+    const subtitles = await extractEmbeddedSubtitles(file);
+    if (subtitles.length > 0) {
+      setSystemNotice(`💬 ${subtitles.length} altyazı track'i bulundu: ${subtitles.map(s => s.name || s.language).join(", ")}`);
+    }
   };
 
   const handleSubtitleSelect = (e) => {
