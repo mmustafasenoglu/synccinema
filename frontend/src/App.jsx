@@ -536,6 +536,29 @@ export default function App() {
     }, 1000);
   };
 
+  // ---------------------------------------------------------------
+  // ODAYI TERK ETME
+  // ---------------------------------------------------------------
+  const handleLeaveRoom = () => {
+    if (!confirm("Odadan ayrılmak istediğine emin misin?")) return;
+    
+    cleanupWebRTC();
+    socketRef.current.disconnect();
+    
+    setJoined(false);
+    setRoomName("");
+    setVideoSrc(null);
+    setVideoFileName("");
+    setVideoFileMeta(null);
+    setMessages([]);
+    setPeerCount(1);
+    setPeerName("");
+    setIsAdmin(false);
+    setFileMismatch(false);
+    setPeerTimeDiff(null);
+    saveSession(null);
+  };
+
   const handleReaction = (emoji) => {
     if (!socketRef.current) return;
     socketRef.current.emit("reaction", { room: roomName.trim(), emoji });
@@ -711,6 +734,14 @@ export default function App() {
             title={!voiceReady ? "Sesli sohbet için önce videoyu aç ve karşı tarafı bekle" : "Sesli sohbete bağlan"}
           >
             {micEnabled ? "🎙️ Sesi Kapat" : "🎤 Sesi Aç"}
+          </button>
+          
+          <button 
+            className="mic-btn leave-btn"
+            onClick={handleLeaveRoom}
+            title="Odadan ayrıl"
+          >
+            🚪 Çık
           </button>
         </div>
       </div>

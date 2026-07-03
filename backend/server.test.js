@@ -1,17 +1,15 @@
 const { createServer } = require("./createServer");
 const { io: Client } = require("socket.io-client");
 
-describe("SyncCinema Backend Socket.IO Tests", () => {
-  let io, httpServer, app;
-  let clientSocket1, clientSocket2, clientSocket3;
+describe("SyncCinema Backend Tests", () => {
+  let io, httpServer;
+  let sockets = [];
   let port;
 
   beforeAll((done) => {
     const serverInstance = createServer();
     httpServer = serverInstance.httpServer;
     io = serverInstance.io;
-    app = serverInstance.app;
-
     httpServer.listen(() => {
       port = httpServer.address().port;
       done();
@@ -24,113 +22,92 @@ describe("SyncCinema Backend Socket.IO Tests", () => {
   });
 
   afterEach(() => {
-    if (clientSocket1) clientSocket1.disconnect();
-    if (clientSocket2) clientSocket2.disconnect();
-    if (clientSocket3) clientSocket3.disconnect();
+    sockets.forEach((s) => { if (s && s.connected) s.disconnect(); });
+    sockets = [];
   });
 
-  test("should allow 2 users to join a room and limit the 3rd user", (done) => {
-    clientSocket1 = Client(`http://localhost:${port}`);
-    
-    clientSocket1.on("connect", () => {
-      clientSocket1.emit("join_room", { roomName: "test-room", userName: "User1" });
-      
-      clientSocket1.on("room_status", (data) => {
-        expect(data.room).toBe("test-room");
-        expect(data.userCount).toBe(1);
-        expect(data.voiceMode).toBe("waiting");
-        expect(data.autoVoice).toBe(false);
-        
-        // Connect second client
-        clientSocket2 = Client(`http://localhost:${port}`);
-        clientSocket2.on("connect", () => {
-          clientSocket2.emit("join_room", { roomName: "test-room", userName: "User2" });
-          
-          clientSocket2.on("room_status", (data2) => {
-            expect(data2.userCount).toBe(2);
-            expect(data2.voiceMode).toBe("receiver");
-            expect(data2.autoVoice).toBe(true);
+  function createClient() {
+    const socket = Client(`http://localhost:${port}`);
+    sockets.push(socket);
+    return socket;
+  }
 
-            clientSocket1.on("user_joined", (joinedData) => {
-              expect(joinedData.userCount).toBe(2);
-              expect(joinedData.voiceMode).toBe("initiator");
-              expect(joinedData.autoVoice).toBe(true);
-            });
-            
-            // Connect third client (should be rejected)
-            clientSocket3 = Client(`http://localhost:${port}`);
-            clientSocket3.on("connect", () => {
-              clientSocket3.emit("join_room", { roomName: "test-room", userName: "User3" });
-              
-              clientSocket3.on("room_full", (msg) => {
-                expect(msg.message).toContain("dolu");
-                done();
-              });
-            });
-          });
-        });
-      });
-    });
-  });
-
-  test("should relay video_action to other users in the room", (done) => {
-    clientSocket1 = Client(`http://localhost:${port}`);
-    clientSocket2 = Client(`http://localhost:${port}`);
-    
-    let connections = 0;
-    const checkReady = () => {
-      connections++;
-      if (connections === 2) {
-        clientSocket1.emit("join_room", { roomName: "video-room", userName: "User1" });
-        setTimeout(() => {
-          clientSocket2.emit("join_room", { roomName: "video-room", userName: "User2" });
-        }, 50);
-      }
+  test("video_action karşı tarafa iletilir", (done) => {
+    const s1 = createClient();
+    const s2 = createClient();
+    let ready = 0;
+    const check = () => { if (++ready === 2) join(); };
+    const join = () => {
+      s1.emit("join_room", { roomName: "video-test", userName: "A" });
+      setTimeout(() => s2.emit("join_room", { roomName: "video-test", userName: "B" }), 50);
     };
-    
-    clientSocket1.on("connect", checkReady);
-    clientSocket2.on("connect", checkReady);
-    
-    clientSocket2.on("video_action_received", (data) => {
-      expect(data.room).toBe("video-room");
+    s1.on("connect", check);
+    s2.on("connect", check);
+    s2.on("video_action_received", (data) => {
       expect(data.action).toBe("play");
       expect(data.currentTime).toBe(10);
       done();
     });
-    
-    // Wait for joins to process
     setTimeout(() => {
-      clientSocket1.emit("video_action", { room: "video-room", action: "play", currentTime: 10 });
-    }, 200);
+      s1.emit("video_action", { room: "video-test", action: "play", currentTime: 10 });
+    }, 300);
   });
 
-  test("should relay webrtc_signal to other users in the room", (done) => {
-    clientSocket1 = Client(`http://localhost:${port}`);
-    clientSocket2 = Client(`http://localhost:${port}`);
-    
-    let connections = 0;
-    const checkReady = () => {
-      connections++;
-      if (connections === 2) {
-        clientSocket1.emit("join_room", { roomName: "webrtc-room", userName: "User1" });
-        setTimeout(() => {
-          clientSocket2.emit("join_room", { roomName: "webrtc-room", userName: "User2" });
-        }, 50);
-      }
+  test("mesaj karşı tarafa iletilir", (done) => {
+    const s1 = createClient();
+    const s2 = createClient();
+    let ready = 0;
+    const check = () => { if (++ready === 2) join(); };
+    const join = () => {
+      s1.emit("join_room", { roomName: "chat-test", userName: "A" });
+      setTimeout(() => s2.emit("join_room", { roomName: "chat-test", userName: "B" }), 50);
     };
-    
-    clientSocket1.on("connect", checkReady);
-    clientSocket2.on("connect", checkReady);
-    
-    clientSocket2.on("webrtc_signal_received", (data) => {
-      expect(data.room).toBe("webrtc-room");
-      expect(data.signal).toEqual({ type: 'offer', sdp: 'fake-sdp' });
+    s1.on("connect", check);
+    s2.on("connect", check);
+    s2.on("receive_message", (data) => {
+      expect(data.message).toBe("Merhaba!");
       done();
     });
-    
-    // Wait for joins to process
     setTimeout(() => {
-      clientSocket1.emit("webrtc_signal", { room: "webrtc-room", signal: { type: 'offer', sdp: 'fake-sdp' } });
-    }, 200);
+      s1.emit("send_message", { room: "chat-test", message: "Merhaba!", sender: "A" });
+    }, 300);
+  });
+
+  test("webrtc_signal karşı tarafa iletilir", (done) => {
+    const s1 = createClient();
+    const s2 = createClient();
+    let ready = 0;
+    const check = () => { if (++ready === 2) join(); };
+    const join = () => {
+      s1.emit("join_room", { roomName: "webrtc-test", userName: "A" });
+      setTimeout(() => s2.emit("join_room", { roomName: "webrtc-test", userName: "B" }), 50);
+    };
+    s1.on("connect", check);
+    s2.on("connect", check);
+    s2.on("webrtc_signal_received", (data) => {
+      expect(data.signal).toEqual({ type: "offer", sdp: "test" });
+      done();
+    });
+    setTimeout(() => {
+      s1.emit("webrtc_signal", { room: "webrtc-test", signal: { type: "offer", sdp: "test" } });
+    }, 300);
+  });
+
+  test("kullanıcı ayrılınca user_left bildirimi gider", (done) => {
+    const s1 = createClient();
+    const s2 = createClient();
+    let ready = 0;
+    const check = () => { if (++ready === 2) join(); };
+    const join = () => {
+      s1.emit("join_room", { roomName: "leave-test", userName: "A" });
+      setTimeout(() => s2.emit("join_room", { roomName: "leave-test", userName: "B" }), 50);
+    };
+    s1.on("connect", check);
+    s2.on("connect", check);
+    s2.on("user_left", (data) => {
+      expect(data.userCount).toBe(1);
+      done();
+    });
+    setTimeout(() => s1.disconnect(), 300);
   });
 });

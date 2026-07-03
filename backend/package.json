@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "jest --runInBand --watchman=false"
+    "test": "jest --runInBand --watchman=false --forceExit"
   },
   "jest": {
     "testEnvironment": "node",
