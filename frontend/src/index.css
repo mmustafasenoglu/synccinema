@@ -811,3 +811,32 @@ body {
     opacity: 1;
   }
 }
+
+/* ---------- ADMIN UYARI BANNER ---------- */
+.admin-only-banner {
+  position: absolute;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(232, 163, 61, 0.15);
+  border: 1px solid rgba(232, 163, 61, 0.5);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 100px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 15;
+}
+
+/* ---------- ADMIN GÖSTERGESİ ---------- */
+.admin-badge {
+  background: var(--accent);
+  color: #16110a;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 100px;
+  letter-spacing: 0.5px;
+}

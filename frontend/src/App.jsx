@@ -40,6 +40,7 @@ export default function App() {
   const [lobbyMode, setLobbyMode] = useState("select");
   const [copied, setCopied] = useState(false);
   const [lobbyError, setLobbyError] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false); // Admin kontrolü
 
   // --- Video State ---
   const [videoSrc, setVideoSrc] = useState(null);
@@ -119,6 +120,7 @@ export default function App() {
     socket.on("room_status", (data) => {
       setPeerCount(data.userCount || 1);
       updatePeerName(data.users);
+      setIsAdmin(data.isAdmin || false); // Admin durumunu ayarla
       setVoiceAutoConfig({
         autoVoice: Boolean(data.autoVoice),
         voiceMode: data.voiceMode || "waiting",
@@ -479,6 +481,7 @@ export default function App() {
   const emitVideoAction = useCallback(
     (action) => {
       if (isIncomingSignal.current) return;
+      if (!isAdmin) return; // Sadece admin kontrol edebilir
       const video = videoRef.current;
       if (!video || !socketRef.current) return;
 
@@ -489,7 +492,7 @@ export default function App() {
         sentAt: Date.now(),
       });
     },
-    [roomName]
+    [roomName, isAdmin]
   );
 
   const handlePlay = () => emitVideoAction("play");
@@ -681,6 +684,7 @@ export default function App() {
           <button className={`copy-btn ${copied ? "copied" : ""}`} onClick={handleCopyCode}>
             {copied ? "Kopyalandı! ✓" : "Kopyala 📋"}
           </button>
+          {isAdmin && <span className="admin-badge">👑 ADMIN</span>}
         </div>
         <div className="presence" style={{ display: "flex", gap: "16px", alignItems: "center" }}>
           <div>
@@ -734,11 +738,16 @@ export default function App() {
               <video
                 ref={videoRef}
                 src={videoSrc}
-                controls
+                controls={isAdmin} // Sadece admin kontrol edebilir
                 onPlay={handlePlay}
                 onPause={handlePause}
                 onSeeked={handleSeeked}
               />
+              {!isAdmin && peerCount > 1 && (
+                <div className="admin-only-banner">
+                  ⚠️ Sadece oda sahibi videoyu kontrol edebilir
+                </div>
+              )}
               <div className={`sync-flash ${showSyncFlash ? "show" : ""}`}>
                 <span className="pulse-dot" />
                 Senkronize edildi

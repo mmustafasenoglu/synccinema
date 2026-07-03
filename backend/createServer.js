@@ -30,6 +30,7 @@ function createServer() {
 
   const roomUserCounts = {}; // Artık sadece test için tutulur, gerçek sayım Socket.io'dan alınır
   const roomPlaybackState = {};
+  const roomAdmins = {}; // Oda sahibini takip et
 
   function getRoomUsers(roomName) {
     const clients = io.sockets.adapter.rooms.get(roomName);
@@ -40,7 +41,8 @@ function createServer() {
         if (clientSocket) {
           users.push({
             socketId: clientId,
-            userName: clientSocket.data.userName || "Misafir"
+            userName: clientSocket.data.userName || "Misafir",
+            isAdmin: clientSocket.data.isAdmin || false
           });
         }
       }
@@ -81,13 +83,24 @@ function createServer() {
       roomUserCounts[roomName] = newCount;
       const isSecondParticipant = newCount === 2;
 
+      // İlk giren kişi admin olsun
+      if (newCount === 1) {
+        socket.data.isAdmin = true;
+        roomAdmins[roomName] = socket.id;
+        console.log(`[join_room] Admin belirlendi: ${userName} (${socket.id})`);
+      } else {
+        socket.data.isAdmin = false;
+      }
+
       const users = getRoomUsers(roomName);
+      const adminId = roomAdmins[roomName];
       console.log(`[join_room] Oda: ${roomName}, Yeni üye sayısı: ${newCount}, Kullanıcılar: ${users.map(u => u.userName).join(", ")}`);
 
       socket.to(roomName).emit("user_joined", {
         message: `${socket.data.userName} odaya katıldı.`,
         userCount: newCount,
         users: users,
+        adminId: adminId,
         autoVoice: isSecondParticipant,
         voiceMode: isSecondParticipant ? "initiator" : "waiting"
       });
@@ -96,6 +109,8 @@ function createServer() {
         room: roomName,
         userCount: newCount,
         users: users,
+        adminId: adminId,
+        isAdmin: socket.data.isAdmin,
         autoVoice: isSecondParticipant,
         voiceMode: isSecondParticipant ? "receiver" : "waiting"
       });
@@ -107,6 +122,14 @@ function createServer() {
 
     socket.on("video_action", (data) => {
       if (!data || !data.room) return;
+      
+      // Sadece admin video kontrolü yapabilir
+      const adminId = roomAdmins[data.room];
+      if (socket.id !== adminId) {
+        console.log(`[video_action] Reddedildi - Admin değil: ${socket.data.userName}`);
+        return;
+      }
+
       roomPlaybackState[data.room] = {
         currentTime: data.currentTime,
         isPaused: data.action === "pause",
