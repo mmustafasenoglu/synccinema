@@ -882,10 +882,14 @@ video::cue {
 }
 
 video::-webkit-media-text-track-container {
-  max-width: 80%;
-  margin: 0 auto;
+  max-width: 70%;
+  margin: 0;
+  margin-left: 2%;
 }
 
 video::-webkit-media-text-track-display {
-  bottom: 8% !important;
+  top: 15% !important;
+  bottom: auto !important;
+  left: 2% !important;
+  right: auto !important;
 }
