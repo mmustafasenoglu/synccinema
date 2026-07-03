@@ -257,7 +257,14 @@ export default function App() {
       if (!videoFileMeta) return;
       const nameMismatch = data.name !== videoFileMeta.name;
       const sizeMismatch = Math.abs(data.size - videoFileMeta.size) > 1024 * 100;
-      setFileMismatch(nameMismatch || sizeMismatch);
+      const durationMismatch = data.duration && videoFileMeta.duration && 
+                               Math.abs(data.duration - videoFileMeta.duration) > 2; // 2 sn fark
+      setFileMismatch(nameMismatch || sizeMismatch || durationMismatch);
+      
+      // Farklı dosya uyarısı gönder
+      if (nameMismatch || sizeMismatch || durationMismatch) {
+        setSystemNotice("⚠️ Farklı video dosyası tespit edildi! Senkronizasyon hatalı olabilir.");
+      }
     });
 
     socket.on("receive_message", (data) => {
@@ -712,7 +719,7 @@ export default function App() {
         <div className="video-pane">
           {fileMismatch && (
             <div className="file-mismatch-banner">
-              ⚠️ Dosyalar eşleşmiyor gibi görünüyor — senkron hatalı olabilir!
+              ⚠️ Farklı video dosyası! Senkronizasyon çalışmayabilir — her iki taraf da aynı dosyayı seçmeli.
             </div>
           )}
 
