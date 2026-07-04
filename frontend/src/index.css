@@ -5,12 +5,12 @@
   --panel: #12151c;
   --panel-2: #171b24;
   --border: #232833;
-  --text: #e8e9ed;
-  --text-dim: #8a8f9c;
-  --accent: #e8a33d;
-  --accent-dim: #8a6528;
+  --text: #ffffff;
+  --text-dim: #b0b5c4;
+  --accent: #FF99CB;
+  --accent-dim: #b36b8e;
   --sync: #2bb3a3;
-  --bubble-me: #2bb3a3;
+  --bubble-me: #FF99CB;
   --bubble-them: #232833;
   --danger: #d9534f;
 }
@@ -240,9 +240,9 @@ body {
 }
 
 .mic-btn.active {
-  border-color: var(--sync);
-  background: rgba(43, 179, 163, 0.12);
-  color: var(--sync);
+  border-color: var(--accent);
+  background: rgba(255, 153, 203, 0.12);
+  color: var(--accent);
 }
 
 .mic-btn:disabled {
@@ -307,9 +307,9 @@ body {
   position: absolute;
   top: 16px;
   left: 16px;
-  background: rgba(43, 179, 163, 0.15);
-  border: 1px solid rgba(43, 179, 163, 0.5);
-  color: var(--sync);
+  background: rgba(255, 153, 203, 0.15);
+  border: 1px solid rgba(255, 153, 203, 0.5);
+  color: var(--accent);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.5px;
@@ -333,7 +333,7 @@ body {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--sync);
+  background: var(--accent);
   animation: pulse 1s ease-in-out infinite;
 }
 
@@ -451,12 +451,12 @@ body {
 }
 
 .chat-input-row input:focus {
-  border-color: var(--sync);
+  border-color: var(--accent);
 }
 
 .chat-input-row button {
-  background: var(--sync);
-  color: #06201c;
+  background: var(--accent);
+  color: #16110a;
   border: none;
   border-radius: 10px;
   padding: 0 18px;
@@ -553,9 +553,9 @@ body {
 .room-code-display {
   font-family: 'Courier New', Courier, monospace;
   font-size: 18px;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--accent);
-  letter-spacing: 1px;
+  letter-spacing: 1.5px;
 }
 
 .copy-btn {
@@ -579,8 +579,8 @@ body {
 }
 
 .copy-btn.copied {
-  background: var(--sync);
-  color: #06201c;
+  background: var(--accent);
+  color: #16110a;
 }
 
 /* ---------- ARKADAŞ DAVET KARTI (VİDEO PANELİ İÇİNDE) ---------- */
@@ -624,9 +624,9 @@ body {
 .large-code {
   font-family: 'Courier New', Courier, monospace;
   font-size: 28px;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--accent);
-  letter-spacing: 2px;
+  letter-spacing: 3px;
 }
 
 .large-copy-btn {
@@ -646,8 +646,8 @@ body {
 }
 
 .large-copy-btn.copied {
-  background: var(--sync);
-  color: #06201c;
+  background: var(--accent);
+  color: #16110a;
 }
 
 /* ---------- LOBİ HATA MESAJI ---------- */
@@ -693,9 +693,9 @@ body {
 }
 
 .sync-status.ok {
-  background: rgba(43, 179, 163, 0.15);
-  border: 1px solid rgba(43, 179, 163, 0.5);
-  color: var(--sync);
+  background: rgba(255, 153, 203, 0.15);
+  border: 1px solid rgba(255, 153, 203, 0.5);
+  color: var(--accent);
 }
 
 .sync-status.warn {
@@ -843,13 +843,13 @@ body {
 
 /* ---------- ODAYI TERK ET BUTONU ---------- */
 .leave-btn {
-  border-color: rgba(217, 83, 79, 0.5) !important;
-  color: var(--danger) !important;
+  border-color: rgba(255, 80, 140, 0.5) !important;
+  color: #ff508c !important;
 }
 
 .leave-btn:hover {
-  background: rgba(217, 83, 79, 0.15) !important;
-  border-color: var(--danger) !important;
+  background: rgba(255, 80, 140, 0.15) !important;
+  border-color: #ff508c !important;
 }
 
 /* ---------- ALTYAZI GÖSTERGESİ ---------- */
@@ -857,9 +857,9 @@ body {
   position: absolute;
   top: 16px;
   right: 16px;
-  background: rgba(43, 179, 163, 0.15);
-  border: 1px solid rgba(43, 179, 163, 0.5);
-  color: var(--sync);
+  background: rgba(255, 153, 203, 0.15);
+  border: 1px solid rgba(255, 153, 203, 0.5);
+  color: var(--accent);
   font-size: 11px;
   font-weight: 600;
   padding: 6px 12px;
@@ -970,4 +970,298 @@ video::-webkit-media-text-track-display {
   bottom: auto !important;
   left: var(--sub-left, 2%) !important;
   right: auto !important;
+}
+
+/* ---------- ALTYAZI SEÇME BARI (VİDEO ÜZERİNDE) ---------- */
+.subtitle-select-bar {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.picker-label-sm {
+  margin-top: 0;
+  padding: 8px 14px;
+  font-size: 12px;
+  border-radius: 8px;
+  background: rgba(18, 21, 28, 0.85);
+  color: var(--text);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+}
+
+.picker-label-sm:hover {
+  background: rgba(18, 21, 28, 0.95);
+  border-color: var(--accent);
+}
+
+.subtitle-loaded-text {
+  font-size: 11px;
+  color: var(--accent);
+  background: rgba(255, 153, 203, 0.15);
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 153, 203, 0.3);
+  white-space: nowrap;
+}
+
+/* ---------- MOBİL CHAT BUTONU ---------- */
+.chat-toggle-btn {
+  display: none;
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #16110a;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  z-index: 100;
+  box-shadow: 0 4px 20px rgba(255, 153, 203, 0.4);
+  transition: transform 0.2s ease, filter 0.15s ease;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-toggle-btn:active {
+  transform: scale(0.92);
+}
+
+.chat-toggle-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  pointer-events: none;
+}
+
+/* ---------- MOBİL RESPONSIVE ---------- */
+@media (max-width: 768px) {
+  .app-shell {
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  .chat-toggle-btn {
+    display: flex;
+  }
+
+  .topbar {
+    height: 48px;
+    padding: 0 12px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 8px;
+  }
+
+  .topbar-brand {
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  .room-share-container {
+    padding: 4px 10px;
+    gap: 6px;
+  }
+
+  .room-code-display {
+    font-size: 14px;
+  }
+
+  .copy-btn {
+    font-size: 10px;
+    padding: 3px 8px;
+  }
+
+  .admin-badge {
+    font-size: 9px;
+    padding: 2px 6px;
+  }
+
+  .presence, .voice-status {
+    font-size: 11px;
+  }
+
+  .mic-btn {
+    font-size: 11px;
+    padding: 6px 10px;
+  }
+
+  .leave-btn {
+    font-size: 11px;
+    padding: 6px 10px;
+  }
+
+  .main-layout {
+    flex-direction: column;
+  }
+
+  .video-pane {
+    flex: 1;
+    min-height: 50vh;
+  }
+
+  .chat-pane {
+    display: none;
+    position: fixed;
+    top: 48px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 90;
+    min-width: 0;
+    max-width: none;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    animation: slideUp 0.25s ease-out;
+  }
+
+  .chat-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .chat-header .chat-close-btn {
+    display: block !important;
+  }
+
+  .chat-pane.mobile-open {
+    display: flex;
+  }
+
+  @keyframes slideUp {
+    from { transform: translateY(100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  .lobby {
+    padding: 16px;
+  }
+
+  .lobby-card {
+    padding: 28px 20px;
+  }
+
+  .lobby-brand {
+    font-size: 32px;
+  }
+
+  .lobby-tagline {
+    font-size: 13px;
+    margin-bottom: 24px;
+  }
+
+  .lobby-actions {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .lobby-btn {
+    padding: 14px 10px;
+  }
+
+  .share-box {
+    max-width: 320px;
+    padding: 18px;
+    margin: 0 auto 20px auto;
+  }
+
+  .large-code {
+    font-size: 22px;
+  }
+
+  .subtitle-indicator {
+    top: 10px;
+    right: 10px;
+    font-size: 10px;
+    padding: 4px 8px;
+  }
+
+  .subtitle-settings-panel {
+    top: 50px;
+    right: 10px;
+    left: 10px;
+    min-width: 0;
+    width: auto;
+  }
+
+  .sync-status {
+    bottom: 50px;
+    left: 10px;
+    font-size: 10px;
+  }
+
+  .admin-only-banner {
+    bottom: 80px;
+    font-size: 11px;
+    padding: 6px 12px;
+  }
+
+  .reaction-btn-bar {
+    padding: 6px 10px;
+  }
+
+  .reaction-btn {
+    font-size: 16px;
+    padding: 4px 6px;
+  }
+
+  .subtitle-select-bar {
+    bottom: 10px;
+    right: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .lobby-brand {
+    font-size: 28px;
+  }
+
+  .topbar {
+    height: 44px;
+    padding: 0 10px;
+  }
+
+  .topbar-brand {
+    font-size: 16px;
+  }
+
+  .room-share-container {
+    padding: 3px 8px;
+  }
+
+  .room-code-display {
+    font-size: 13px;
+  }
+
+  .field-input {
+    padding: 11px 12px;
+    font-size: 13px;
+  }
+
+  .chat-toggle-btn {
+    width: 50px;
+    height: 50px;
+    font-size: 20px;
+    bottom: 20px;
+    right: 20px;
+  }
 }

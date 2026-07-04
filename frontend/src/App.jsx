@@ -62,6 +62,7 @@ export default function App() {
     return { fontSize: 18, top: 15, left: 2, opacity: 85, color: "#ffffff", bgOpacity: 85 };
   };
   const [subtitleSettings, setSubtitleSettings] = useState(loadSubtitleSettings);
+  const [subtitleTracks, setSubtitleTracks] = useState([]);
   const [showSubtitleSettings, setShowSubtitleSettings] = useState(false);
 
   // Ayarları kaydet
@@ -79,6 +80,10 @@ export default function App() {
   const [micEnabled, setMicEnabled] = useState(false);
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [voiceAutoConfig, setVoiceAutoConfig] = useState({ autoVoice: false, voiceMode: "waiting" });
+
+  // --- Mobil Chat State ---
+  const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const socketRef = useRef(null);
   const videoRef = useRef(null);
@@ -288,6 +293,9 @@ export default function App() {
 
     socket.on("receive_message", (data) => {
       setMessages((prev) => [...prev, data]);
+      if (!mobileChatOpen) {
+        setUnreadCount((prev) => prev + 1);
+      }
     });
 
     socket.on("reaction_received", (data) => {
@@ -571,6 +579,7 @@ export default function App() {
 
     // Gömülü altyazıyı kontrol et
     const subtitles = await extractEmbeddedSubtitles(file);
+    setSubtitleTracks(subtitles);
     if (subtitles.length > 0) {
       setSystemNotice(`💬 ${subtitles.length} altyazı track'i bulundu: ${subtitles.map(s => s.name || s.language).join(", ")}`);
     }
@@ -604,9 +613,24 @@ export default function App() {
     [roomName, isAdmin]
   );
 
-  const handlePlay = () => emitVideoAction("play");
-  const handlePause = () => emitVideoAction("pause");
-  const handleSeeked = () => emitVideoAction("seek");
+  const handlePlay = () => {
+    if (!isAdmin) {
+      const video = videoRef.current;
+      if (video && !isIncomingSignal.current) {
+        setTimeout(() => { video.pause(); }, 50);
+      }
+      return;
+    }
+    emitVideoAction("play");
+  };
+  const handlePause = () => {
+    if (!isAdmin) return;
+    emitVideoAction("pause");
+  };
+  const handleSeeked = () => {
+    if (!isAdmin) return;
+    emitVideoAction("seek");
+  };
 
   // ---------------------------------------------------------------
   // CHAT GÖNDERME
@@ -806,6 +830,15 @@ export default function App() {
   return (
     <div className="app-shell">
       <audio ref={remoteAudioRef} autoPlay />
+      <button 
+        className="chat-toggle-btn" 
+        onClick={() => { setMobileChatOpen(!mobileChatOpen); setUnreadCount(0); }}
+      >
+        {mobileChatOpen ? "✕" : "💬"}
+        {!mobileChatOpen && unreadCount > 0 && (
+          <span className="chat-toggle-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>
+        )}
+      </button>
       <div className="topbar">
         <div className="topbar-brand">
           Sync<span>Cinema</span>
@@ -895,7 +928,7 @@ export default function App() {
               <video
                 ref={videoRef}
                 src={videoSrc}
-                controls={isAdmin}
+                controls
                 onPlay={handlePlay}
                 onPause={handlePause}
                 onSeeked={handleSeeked}
@@ -916,6 +949,14 @@ export default function App() {
                     default
                   />
                 )}
+                {subtitleTracks.map((track) => (
+                  <track
+                    key={track.id}
+                    kind="subtitles"
+                    srcLang={track.language}
+                    label={track.name || track.language}
+                  />
+                ))}
               </video>
               {!isAdmin && peerCount > 1 && (
                 <div className="admin-only-banner">
@@ -924,7 +965,7 @@ export default function App() {
               )}
               {subtitleSrc && (
                 <div className="subtitle-indicator">
-                  💬 Altyazı: {subtitleName}
+                  💬 Altyazı ayarları
                   <button 
                     className="subtitle-settings-btn"
                     onClick={() => setShowSubtitleSettings(!showSubtitleSettings)}
@@ -988,7 +1029,7 @@ export default function App() {
           )}
         </div>
 
-        <div className="chat-pane">
+        <div className={`chat-pane ${mobileChatOpen ? "mobile-open" : ""}`}>
           {videoSrc && (
             <div className="reaction-btn-bar">
               {REACTIONS.map((emoji) => (
@@ -1004,7 +1045,25 @@ export default function App() {
             </div>
           )}
 
-          <div className="chat-header">Sohbet</div>
+          <div className="chat-header">
+            <span>Sohbet</span>
+            <button 
+              className="chat-close-btn"
+              onClick={() => setMobileChatOpen(false)}
+              style={{ 
+                display: "none",
+                background: "var(--panel-2)", 
+                border: "1px solid var(--border)", 
+                borderRadius: "6px",
+                color: "var(--text)", 
+                padding: "4px 10px", 
+                fontSize: "12px", 
+                cursor: "pointer" 
+              }}
+            >
+              ✕ Kapat
+            </button>
+          </div>
           <div className="chat-messages">
             {systemNotice && <div className="system-msg">{systemNotice}</div>}
             {messages.map((m, i) => {
