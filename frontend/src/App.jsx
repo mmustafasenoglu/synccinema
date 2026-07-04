@@ -8,6 +8,9 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:3001";
 const SYNC_INTERVAL_MS = 5000;
 const REACTIONS = ["❤️", "😂", "😮", "👏", "😢", "🔥", "🎉", "👍"];
 
+// ---------------------------------------------------------------
+// SESSION HELPERS
+// ---------------------------------------------------------------
 function loadSession() {
   try {
     const raw = localStorage.getItem("synccinema_session");
@@ -23,14 +26,161 @@ function saveSession(data) {
   } catch {}
 }
 
+// ---------------------------------------------------------------
+// SVG ICONS — Birebir mockup'tan
+// ---------------------------------------------------------------
+
+// Clapper board — HTML mockup'taki SVG paths birebir
+const ClapperIcon = () => (
+  <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    {/* Body */}
+    <rect x="6" y="24" width="52" height="32" rx="4" fill="var(--panel-2)" stroke="var(--pink-deep)" strokeWidth="2"/>
+    {/* Stripe 1 - pink */}
+    <path d="M6 24l6-14h10l-6 14z" fill="var(--pink-deep)"/>
+    {/* Stripe 2 - dark */}
+    <path d="M28 24l6-14h10l-6 14z" fill="var(--text)"/>
+    {/* Stripe 3 - pink */}
+    <path d="M50 24l6-14v14z" fill="var(--pink-deep)"/>
+  </svg>
+);
+
+// Moon icon (light mode -> click to go dark)
+const MoonIcon = () => (
+  <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+  </svg>
+);
+
+// Sun icon (dark mode -> click to go light)
+const SunIcon = () => (
+  <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
+    <circle cx="12" cy="12" r="4"/>
+    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+  </svg>
+);
+
+// Copy icon
+const CopyIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2"/>
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+  </svg>
+);
+
+// Mic icon
+const MicIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+    <line x1="12" y1="19" x2="12" y2="23"/>
+  </svg>
+);
+
+// Send icon — birebir mockup
+const SendIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor">
+    <path d="M2 21l21-9L2 3v7l15 2-15 2z"/>
+  </svg>
+);
+
+// Camera/Video icon for lobby button
+const VideoIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M23 7l-7 5 7 5V7z"/>
+    <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+  </svg>
+);
+
+// Key icon for join button
+const KeyIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="7.5" cy="15.5" r="5.5"/>
+    <path d="M21 2l-9.6 9.6M15.5 7.5L19 4l1 4 4 1-3.5 3.5"/>
+  </svg>
+);
+
+// Speech bubble for chat empty state — birebir mockup
+const ChatBubbleIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+  </svg>
+);
+
+// Mobile chat toggle icon
+const ChatToggleIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+  </svg>
+);
+
+// Fullscreen toggle icon
+const FullscreenIcon = ({ isFullscreen }) => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    {isFullscreen ? (
+      <>
+        <polyline points="8 3 8 8 3 8" />
+        <polyline points="16 3 16 8 21 8" />
+        <polyline points="8 21 8 16 3 16" />
+        <polyline points="16 21 16 16 21 16" />
+      </>
+    ) : (
+      <>
+        <polyline points="15 3 21 3 21 9" />
+        <polyline points="9 21 3 21 3 15" />
+        <line x1="21" y1="3" x2="14" y2="10" />
+        <line x1="3" y1="21" x2="10" y2="14" />
+      </>
+    )}
+  </svg>
+);
+
+// ---------------------------------------------------------------
+// MAIN APP
+// ---------------------------------------------------------------
 export default function App() {
   const saved = loadSession();
 
-  // --- Site Şifresi State ---
+  // --- Theme (light default, dark toggle) ---
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem("synccinema_theme") || "light";
+  });
+
+  useEffect(() => {
+    document.body.classList.toggle("dark", theme === "dark");
+    localStorage.setItem("synccinema_theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
+
+  // --- Fullscreen ---
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFs = () => setIsFullscreen(!!document.fullscreenElement || !!document.webkitFullscreenElement);
+    document.addEventListener("fullscreenchange", handleFs);
+    document.addEventListener("webkitfullscreenchange", handleFs);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFs);
+      document.removeEventListener("webkitfullscreenchange", handleFs);
+    };
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!isFullscreen) {
+      const elem = document.documentElement;
+      if (elem.requestFullscreen) elem.requestFullscreen();
+      else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+    } else {
+      if (document.exitFullscreen) document.exitFullscreen();
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }
+  };
+
+  // --- Site Şifresi ---
   const [authPass, setAuthPass] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(Boolean(saved?.roomName && saved?.myName));
 
-  // --- Bağlantı & Oda State ---
+  // --- Bağlantı & Oda ---
   const [connected, setConnected] = useState(false);
   const [joined, setJoined] = useState(Boolean(saved?.roomName && saved?.myName));
   const [roomName, setRoomName] = useState(saved?.roomName || "");
@@ -41,9 +191,9 @@ export default function App() {
   const [lobbyMode, setLobbyMode] = useState("select");
   const [copied, setCopied] = useState(false);
   const [lobbyError, setLobbyError] = useState("");
-  const [isAdmin, setIsAdmin] = useState(false); // Admin kontrolü
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  // --- Video State ---
+  // --- Video ---
   const [videoSrc, setVideoSrc] = useState(null);
   const [videoFileName, setVideoFileName] = useState("");
   const [videoFileMeta, setVideoFileMeta] = useState(null);
@@ -53,11 +203,11 @@ export default function App() {
   const [subtitleSrc, setSubtitleSrc] = useState(null);
   const [subtitleName, setSubtitleName] = useState("");
 
-  // --- Altyazı Ayarları (localStorage'dan oku) ---
+  // --- Altyazı Ayarları ---
   const loadSubtitleSettings = () => {
     try {
-      const saved = localStorage.getItem("synccinema_subtitle_settings");
-      if (saved) return JSON.parse(saved);
+      const s = localStorage.getItem("synccinema_subtitle_settings");
+      if (s) return JSON.parse(s);
     } catch {}
     return { fontSize: 18, top: 15, left: 2, opacity: 85, color: "#ffffff", bgOpacity: 85 };
   };
@@ -65,26 +215,26 @@ export default function App() {
   const [subtitleTracks, setSubtitleTracks] = useState([]);
   const [showSubtitleSettings, setShowSubtitleSettings] = useState(false);
 
-  // Ayarları kaydet
   useEffect(() => {
     localStorage.setItem("synccinema_subtitle_settings", JSON.stringify(subtitleSettings));
   }, [subtitleSettings]);
 
-  // --- Chat State ---
+  // --- Chat ---
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
   const [peerIsTyping, setPeerIsTyping] = useState(false);
   const [flyingEmojis, setFlyingEmojis] = useState([]);
 
-  // --- WebRTC Ses State ---
+  // --- WebRTC ---
   const [micEnabled, setMicEnabled] = useState(false);
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [voiceAutoConfig, setVoiceAutoConfig] = useState({ autoVoice: false, voiceMode: "waiting" });
 
-  // --- Mobil Chat State ---
+  // --- Mobile Chat ---
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  // Refs
   const socketRef = useRef(null);
   const videoRef = useRef(null);
   const isIncomingSignal = useRef(false);
@@ -93,15 +243,15 @@ export default function App() {
   const typingTimerRef = useRef(null);
   const emojiIdRef = useRef(0);
   const roomNameRef = useRef(roomName);
-
-  // WebRTC Refs
+  const videoFileInputRef = useRef(null);
+  const subtitleFileInputRef = useRef(null);
   const peerRef = useRef(null);
   const streamRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const voiceAutoStartedRef = useRef(false);
 
   // ---------------------------------------------------------------
-  // SOCKET BAĞLANTISI
+  // SOCKET
   // ---------------------------------------------------------------
   useEffect(() => {
     const socket = io(SOCKET_URL, {
@@ -114,9 +264,9 @@ export default function App() {
 
     socket.on("connect", () => {
       setConnected(true);
-      const savedSession = loadSession();
-      const savedRoom = roomNameRef.current || savedSession?.roomName;
-      const savedName = myName || savedSession?.myName;
+      const ss = loadSession();
+      const savedRoom = roomNameRef.current || ss?.roomName;
+      const savedName = myName || ss?.myName;
       if (savedRoom && savedName) {
         socket.emit("join_room", { roomName: savedRoom, userName: savedName.trim() });
         socket.emit("request_sync", { room: savedRoom });
@@ -125,9 +275,9 @@ export default function App() {
     socket.on("disconnect", () => setConnected(false));
 
     socket.on("reconnect", () => {
-      const savedSession = loadSession();
-      const savedRoom = roomNameRef.current || savedSession?.roomName;
-      const savedName = myName || savedSession?.myName;
+      const ss = loadSession();
+      const savedRoom = roomNameRef.current || ss?.roomName;
+      const savedName = myName || ss?.myName;
       if (savedRoom && savedName) {
         socket.emit("join_room", { roomName: savedRoom, userName: savedName.trim() });
         socket.emit("request_sync", { room: savedRoom });
@@ -137,35 +287,27 @@ export default function App() {
     const updatePeerName = (usersList) => {
       if (!usersList || !Array.isArray(usersList)) return;
       const peer = usersList.find((u) => u.socketId !== socket.id);
-      if (peer) setPeerName(peer.userName);
-      else setPeerName("");
+      setPeerName(peer ? peer.userName : "");
     };
 
     socket.on("room_status", (data) => {
       setPeerCount(data.userCount || 1);
       updatePeerName(data.users);
-      setIsAdmin(data.isAdmin || false); // Admin durumunu ayarla
-      setVoiceAutoConfig({
-        autoVoice: Boolean(data.autoVoice),
-        voiceMode: data.voiceMode || "waiting",
-      });
+      setIsAdmin(data.isAdmin || false);
+      setVoiceAutoConfig({ autoVoice: Boolean(data.autoVoice), voiceMode: data.voiceMode || "waiting" });
     });
 
     socket.on("user_joined", (data) => {
       setPeerCount(data.userCount || 2);
       setSystemNotice(data.message);
       updatePeerName(data.users);
-      setVoiceAutoConfig({
-        autoVoice: Boolean(data.autoVoice),
-        voiceMode: data.voiceMode || "waiting",
-      });
+      setVoiceAutoConfig({ autoVoice: Boolean(data.autoVoice), voiceMode: data.voiceMode || "waiting" });
     });
 
     socket.on("user_left", (data) => {
       setPeerCount(data.userCount || 1);
       setSystemNotice(data.message);
       updatePeerName(data.users);
-      
       const video = videoRef.current;
       if (video && !video.paused) {
         isIncomingSignal.current = true;
@@ -177,8 +319,6 @@ export default function App() {
       setFileMismatch(false);
       setVoiceAutoConfig({ autoVoice: false, voiceMode: "waiting" });
       voiceAutoStartedRef.current = false;
-      
-      // Sesli sohbeti kapat (karşı taraf gitti)
       cleanupWebRTC();
     });
 
@@ -189,50 +329,40 @@ export default function App() {
       saveSession(null);
     });
 
-    // --- WebRTC Sinyalleşme ---
     socket.on("webrtc_signal_received", (data) => {
-      if (peerRef.current) {
-        peerRef.current.signal(data.signal);
-      } else {
-        // We received a signal but don't have a peer yet (we are the receiver)
-        // Automatically start receiver peer if we have microphone permission, 
-        // or just accept it silently if we don't have a stream yet.
-        initWebRTC(false, data.signal);
-      }
+      if (peerRef.current) peerRef.current.signal(data.signal);
+      else initWebRTC(false, data.signal);
     });
 
     socket.on("video_action_received", (data) => {
       const video = videoRef.current;
       if (!video) return;
-
       isIncomingSignal.current = true;
       const latency = (Date.now() - (data.sentAt || Date.now())) / 1000;
 
       if (data.action === "play") {
-        let targetTime = data.currentTime + latency;
-        if (video.duration && targetTime > video.duration) targetTime = video.duration;
-
+        let t = data.currentTime + latency;
+        if (video.duration && t > video.duration) t = video.duration;
         if (video.readyState < 3) {
-          video.currentTime = targetTime;
-          const onCanPlay = () => {
-            const extraLatency = (Date.now() - data.sentAt) / 1000;
-            let compensated = data.currentTime + extraLatency;
-            if (video.duration && compensated > video.duration) compensated = video.duration;
-            video.currentTime = compensated;
+          video.currentTime = t;
+          video.addEventListener("canplay", () => {
+            const ex = (Date.now() - data.sentAt) / 1000;
+            let c = data.currentTime + ex;
+            if (video.duration && c > video.duration) c = video.duration;
+            video.currentTime = c;
             video.play().catch(() => {});
-          };
-          video.addEventListener("canplay", onCanPlay, { once: true });
+          }, { once: true });
         } else {
-          video.currentTime = targetTime;
+          video.currentTime = t;
           video.play().catch(() => {});
         }
       } else if (data.action === "pause") {
         video.currentTime = data.currentTime;
         video.pause();
       } else if (data.action === "seek") {
-        let targetTime = data.currentTime + latency;
-        if (video.duration && targetTime > video.duration) targetTime = video.duration;
-        video.currentTime = targetTime;
+        let t = data.currentTime + latency;
+        if (video.duration && t > video.duration) t = video.duration;
+        video.currentTime = t;
       }
 
       triggerSyncFlash();
@@ -242,22 +372,19 @@ export default function App() {
     socket.on("playback_sync_received", (data) => {
       const video = videoRef.current;
       if (!video || video.paused) return;
-
       const latency = (Date.now() - (data.sentAt || Date.now())) / 1000;
       const peerRealTime = data.currentTime + latency;
-      const timeDiff = video.currentTime - peerRealTime;
-      const absDiff = Math.abs(timeDiff);
-
-      setPeerTimeDiff(timeDiff);
-
-      if (absDiff > 1.5) {
+      const diff = video.currentTime - peerRealTime;
+      const abs = Math.abs(diff);
+      setPeerTimeDiff(diff);
+      if (abs > 1.5) {
         isIncomingSignal.current = true;
         video.currentTime = peerRealTime;
         video.playbackRate = 1.0;
         setTimeout(() => { isIncomingSignal.current = false; }, 100);
-      } else if (absDiff > 0.20) {
-        video.playbackRate = timeDiff > 0 ? 0.95 : 1.05;
-      } else if (absDiff < 0.05) {
+      } else if (abs > 0.20) {
+        video.playbackRate = diff > 0 ? 0.95 : 1.05;
+      } else if (abs < 0.05) {
         video.playbackRate = 1.0;
       }
     });
@@ -266,13 +393,12 @@ export default function App() {
       const video = videoRef.current;
       if (!video || !data) return;
       const latency = (Date.now() - (data.sentAt || Date.now())) / 1000;
-      let targetTime = data.currentTime + latency;
-      if (video.duration && targetTime > video.duration) targetTime = video.duration;
+      let t = data.currentTime + latency;
+      if (video.duration && t > video.duration) t = video.duration;
       isIncomingSignal.current = true;
-      video.currentTime = targetTime;
+      video.currentTime = t;
       if (!data.isPaused) video.play().catch(() => {});
       else video.pause();
-      
       setTimeout(() => { isIncomingSignal.current = false; }, 100);
       triggerSyncFlash();
     });
@@ -281,48 +407,29 @@ export default function App() {
       if (!videoFileMeta) return;
       const nameMismatch = data.name !== videoFileMeta.name;
       const sizeMismatch = Math.abs(data.size - videoFileMeta.size) > 1024 * 100;
-      const durationMismatch = data.duration && videoFileMeta.duration && 
-                               Math.abs(data.duration - videoFileMeta.duration) > 2; // 2 sn fark
-      setFileMismatch(nameMismatch || sizeMismatch || durationMismatch);
-      
-      // Farklı dosya uyarısı gönder
-      if (nameMismatch || sizeMismatch || durationMismatch) {
+      const durMismatch = data.duration && videoFileMeta.duration && Math.abs(data.duration - videoFileMeta.duration) > 2;
+      setFileMismatch(nameMismatch || sizeMismatch || durMismatch);
+      if (nameMismatch || sizeMismatch || durMismatch)
         setSystemNotice("⚠️ Farklı video dosyası tespit edildi! Senkronizasyon hatalı olabilir.");
-      }
     });
 
     socket.on("receive_message", (data) => {
       setMessages((prev) => [...prev, data]);
-      if (!mobileChatOpen) {
-        setUnreadCount((prev) => prev + 1);
-      }
+      if (!mobileChatOpen) setUnreadCount((prev) => prev + 1);
     });
 
-    socket.on("reaction_received", (data) => {
-      spawnEmoji(data.emoji);
-    });
-
+    socket.on("reaction_received", (data) => spawnEmoji(data.emoji));
     socket.on("typing_received", () => setPeerIsTyping(true));
     socket.on("typing_stop_received", () => setPeerIsTyping(false));
 
-    return () => {
-      cleanupWebRTC();
-      socket.disconnect();
-    };
+    return () => { cleanupWebRTC(); socket.disconnect(); };
   }, []);
 
-  // roomNameRef'i her değişiklikte güncelle
-  useEffect(() => {
-    roomNameRef.current = roomName;
-  }, [roomName]);
+  useEffect(() => { roomNameRef.current = roomName; }, [roomName]);
 
-  // Session'ı localStorage'a kaydet
   useEffect(() => {
-    if (isAuthenticated && joined && roomName && myName) {
-      saveSession({ roomName, myName });
-    } else {
-      saveSession(null);
-    }
+    if (isAuthenticated && joined && roomName && myName) saveSession({ roomName, myName });
+    else saveSession(null);
   }, [isAuthenticated, joined, roomName, myName]);
 
   useEffect(() => {
@@ -356,51 +463,54 @@ export default function App() {
     return () => clearInterval(interval);
   }, [joined, videoSrc, roomName]);
 
-  // Gömülü altyazıları otomatik aktif et
   useEffect(() => {
     if (!videoSrc || !videoRef.current) return;
     const video = videoRef.current;
-
-    const enableSubtitles = () => {
+    const forceCenterCue = (cue) => {
+      if (cue && typeof cue.align !== 'undefined') {
+        cue.align = "center";
+        cue.position = 50;
+      }
+    };
+    const enableAndCenter = () => {
       if (video.textTracks) {
         for (let i = 0; i < video.textTracks.length; i++) {
-          const track = video.textTracks[i];
-          if (track.kind === "subtitles" || track.kind === "captions" || track.kind === "metadata") {
-            track.mode = "showing";
+          const t = video.textTracks[i];
+          if (t.kind === "subtitles" || t.kind === "captions" || t.kind === "metadata") {
+            t.mode = "showing";
+            // Var olan cue'ları ortala
+            if (t.cues) {
+              for (let j = 0; j < t.cues.length; j++) {
+                forceCenterCue(t.cues[j]);
+              }
+            }
+            // Yeni eklenecek cue'ları ortala
+            t.onaddcue = (e) => forceCenterCue(e.cue);
           }
         }
       }
     };
-
-    video.addEventListener("loadedmetadata", enableSubtitles);
-    video.addEventListener("loadeddata", enableSubtitles);
-
-    return () => {
-      video.removeEventListener("loadedmetadata", enableSubtitles);
-      video.removeEventListener("loadeddata", enableSubtitles);
+    video.addEventListener("loadedmetadata", enableAndCenter);
+    video.addEventListener("loadeddata", enableAndCenter);
+    return () => { 
+      video.removeEventListener("loadedmetadata", enableAndCenter); 
+      video.removeEventListener("loadeddata", enableAndCenter); 
     };
   }, [videoSrc]);
 
   useEffect(() => {
     if (!joined || !videoSrc || micEnabled) return;
     if (!voiceAutoConfig.autoVoice || voiceAutoStartedRef.current) return;
-
     voiceAutoStartedRef.current = true;
     initWebRTC(voiceAutoConfig.voiceMode === "initiator");
   }, [joined, videoSrc, micEnabled, voiceAutoConfig]);
 
   // ---------------------------------------------------------------
-  // WEBRTC SESLİ SOHBET
+  // WEBRTC
   // ---------------------------------------------------------------
   const cleanupWebRTC = () => {
-    if (peerRef.current) {
-      peerRef.current.destroy();
-      peerRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
+    if (peerRef.current) { peerRef.current.destroy(); peerRef.current = null; }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
     setVoiceConnected(false);
     setMicEnabled(false);
   };
@@ -410,65 +520,32 @@ export default function App() {
       .then((stream) => {
         streamRef.current = stream;
         setMicEnabled(true);
-
-        const peer = new Peer({
-          initiator: initiator,
-          trickle: true,
-          stream: stream,
-        });
-
+        const peer = new Peer({ initiator, trickle: true, stream });
         peer.on("signal", (data) => {
-          socketRef.current.emit("webrtc_signal", {
-            room: roomName.trim(),
-            signal: data,
-          });
+          socketRef.current.emit("webrtc_signal", { room: roomName.trim(), signal: data });
         });
-
-        peer.on("connect", () => {
-          setVoiceConnected(true);
-        });
-
+        peer.on("connect", () => setVoiceConnected(true));
         peer.on("stream", (remoteStream) => {
           if (remoteAudioRef.current) {
             remoteAudioRef.current.srcObject = remoteStream;
-            remoteAudioRef.current.play().catch(e => console.error("Audio play error", e));
+            remoteAudioRef.current.play().catch(() => {});
           }
         });
-
-        peer.on("error", (err) => {
-          console.error("WebRTC Error:", err);
-          cleanupWebRTC();
-        });
-
-        if (initialSignal) {
-          peer.signal(initialSignal);
-        }
-
+        peer.on("error", () => cleanupWebRTC());
+        if (initialSignal) peer.signal(initialSignal);
         peerRef.current = peer;
       })
-      .catch((err) => {
-        console.error("Mikrofon izni alınamadı", err);
-        setSystemNotice("Mikrofon erişimine izin vermeniz gerekiyor.");
-      });
+      .catch(() => setSystemNotice("Mikrofon erişimine izin vermeniz gerekiyor."));
   };
 
   const toggleMic = () => {
-    if (micEnabled) {
-      // Kapat
-      cleanupWebRTC();
-    } else {
-      // Aç ve başlat
-      if (peerCount > 1) {
-        initWebRTC(true);
-      } else {
-        setSystemNotice("Odadaki diğer kişi bekleniyor...");
-      }
-    }
+    if (micEnabled) cleanupWebRTC();
+    else if (peerCount > 1) initWebRTC(true);
+    else setSystemNotice("Odadaki diğer kişi bekleniyor...");
   };
 
-
   // ---------------------------------------------------------------
-  // YARDIMCI FONKSİYONLAR
+  // HELPERS
   // ---------------------------------------------------------------
   const triggerSyncFlash = () => {
     setShowSyncFlash(true);
@@ -480,20 +557,18 @@ export default function App() {
     const id = ++emojiIdRef.current;
     const x = 10 + Math.random() * 80;
     setFlyingEmojis((prev) => [...prev, { id, emoji, x }]);
-    setTimeout(() => {
-      setFlyingEmojis((prev) => prev.filter((e) => e.id !== id));
-    }, 2200);
+    setTimeout(() => setFlyingEmojis((prev) => prev.filter((e) => e.id !== id)), 2200);
   }, []);
 
   // ---------------------------------------------------------------
-  // ODA OLUŞTURMA & KATILMA & KOPYALAMA
+  // ODA
   // ---------------------------------------------------------------
   const handleCreateRoom = () => {
     if (!myName.trim()) return;
     setLobbyError("");
-    const generatedCode = String(Math.floor(10000 + Math.random() * 90000));
-    setRoomName(generatedCode);
-    socketRef.current.emit("join_room", { roomName: generatedCode, userName: myName.trim() });
+    const code = String(Math.floor(10000 + Math.random() * 90000));
+    setRoomName(code);
+    socketRef.current.emit("join_room", { roomName: code, userName: myName.trim() });
     setJoined(true);
   };
 
@@ -513,49 +588,37 @@ export default function App() {
   };
 
   // ---------------------------------------------------------------
-  // DOSYA SEÇİMİ
+  // DOSYA
   // ---------------------------------------------------------------
   const extractEmbeddedSubtitles = (file) => {
     return new Promise((resolve) => {
       try {
         const reader = new FileReader();
         reader.onload = (e) => {
-          const arrayBuffer = e.target.result;
-          const mp4boxFile = MP4Box.createFile();
-          const subtitleTracks = [];
-
-          mp4boxFile.onReady = (info) => {
+          const ab = e.target.result;
+          const mp4 = MP4Box.createFile();
+          const tracks = [];
+          mp4.onReady = (info) => {
             info.tracks.forEach((track) => {
-              if (track.type === "text" || track.codec && (
-                track.codec.includes("text") || 
-                track.codec.includes("subt") ||
-                track.codec.includes("stpp") ||
-                track.codec.includes("wvtt") ||
+              if (track.type === "text" || (track.codec && (
+                track.codec.includes("text") || track.codec.includes("subt") ||
+                track.codec.includes("stpp") || track.codec.includes("wvtt") ||
                 track.kind === "subtitles"
-              )) {
-                subtitleTracks.push({
-                  id: track.id,
-                  codec: track.codec,
-                  language: track.language || "und",
-                  name: track.name || "Altyazı"
-                });
+              ))) {
+                tracks.push({ id: track.id, codec: track.codec, language: track.language || "und", name: track.name || "Altyazı" });
               }
             });
-            resolve(subtitleTracks);
+            resolve(tracks);
           };
-
-          mp4boxFile.onError = () => resolve([]);
-          
-          const chunk = new Uint8Array(arrayBuffer.slice(0, 1024 * 1024));
+          mp4.onError = () => resolve([]);
+          const chunk = new Uint8Array(ab.slice(0, 1024 * 1024));
           chunk.fileStart = 0;
-          mp4boxFile.appendBuffer(chunk);
-          mp4boxFile.flush();
+          mp4.appendBuffer(chunk);
+          mp4.flush();
         };
         reader.onerror = () => resolve([]);
         reader.readAsArrayBuffer(file.slice(0, 1024 * 1024));
-      } catch {
-        resolve([]);
-      }
+      } catch { resolve([]); }
     });
   };
 
@@ -565,75 +628,70 @@ export default function App() {
     const url = URL.createObjectURL(file);
     setVideoSrc(url);
     setVideoFileName(file.name);
-
-    const tempVideo = document.createElement("video");
-    tempVideo.preload = "metadata";
-    tempVideo.onloadedmetadata = () => {
-      const meta = { name: file.name, size: file.size, duration: tempVideo.duration };
+    const tmpVideo = document.createElement("video");
+    tmpVideo.preload = "metadata";
+    tmpVideo.onloadedmetadata = () => {
+      const meta = { name: file.name, size: file.size, duration: tmpVideo.duration };
       setVideoFileMeta(meta);
-      if (socketRef.current) {
-        socketRef.current.emit("file_info", { room: roomName.trim(), ...meta });
-      }
+      if (socketRef.current) socketRef.current.emit("file_info", { room: roomName.trim(), ...meta });
     };
-    tempVideo.src = url;
-
-    // Gömülü altyazıyı kontrol et
-    const subtitles = await extractEmbeddedSubtitles(file);
-    setSubtitleTracks(subtitles);
-    if (subtitles.length > 0) {
-      setSystemNotice(`💬 ${subtitles.length} altyazı track'i bulundu: ${subtitles.map(s => s.name || s.language).join(", ")}`);
-    }
+    tmpVideo.src = url;
+    const subs = await extractEmbeddedSubtitles(file);
+    setSubtitleTracks(subs);
+    if (subs.length > 0) setSystemNotice(`💬 ${subs.length} altyazı track'i bulundu.`);
   };
 
   const handleSubtitleSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setSubtitleSrc(url);
-    setSubtitleName(file.name);
+    
+    if (file.name.toLowerCase().endsWith('.srt')) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        let text = ev.target.result;
+        // Remove formatting tags like {\an8} that force positions
+        text = text.replace(/\{\\[^}]+\}/g, '');
+        // Convert SRT timestamps to VTT format (replace comma with dot)
+        text = text.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+        // Add WEBVTT header
+        const vttText = "WEBVTT\n\n" + text;
+        const blob = new Blob([vttText], { type: 'text/vtt' });
+        setSubtitleSrc(URL.createObjectURL(blob));
+        setSubtitleName(file.name);
+      };
+      // Try to read as UTF-8, though Turkish ANSI might be an issue. Standardizing on UTF-8.
+      reader.readAsText(file);
+    } else {
+      setSubtitleSrc(URL.createObjectURL(file));
+      setSubtitleName(file.name);
+    }
   };
 
   // ---------------------------------------------------------------
-  // VİDEO EVENT HANDLER'LARI
+  // VIDEO
   // ---------------------------------------------------------------
-  const emitVideoAction = useCallback(
-    (action) => {
-      if (isIncomingSignal.current) return;
-      if (!isAdmin) return; // Sadece admin kontrol edebilir
-      const video = videoRef.current;
-      if (!video || !socketRef.current) return;
-
-      socketRef.current.emit("video_action", {
-        room: roomName.trim(),
-        action,
-        currentTime: video.currentTime,
-        sentAt: Date.now(),
-      });
-    },
-    [roomName, isAdmin]
-  );
+  const emitVideoAction = useCallback((action) => {
+    if (isIncomingSignal.current || !isAdmin) return;
+    const video = videoRef.current;
+    if (!video || !socketRef.current) return;
+    socketRef.current.emit("video_action", {
+      room: roomName.trim(), action, currentTime: video.currentTime, sentAt: Date.now(),
+    });
+  }, [roomName, isAdmin]);
 
   const handlePlay = () => {
     if (!isAdmin) {
       const video = videoRef.current;
-      if (video && !isIncomingSignal.current) {
-        setTimeout(() => { video.pause(); }, 50);
-      }
+      if (video && !isIncomingSignal.current) setTimeout(() => { video.pause(); }, 50);
       return;
     }
     emitVideoAction("play");
   };
-  const handlePause = () => {
-    if (!isAdmin) return;
-    emitVideoAction("pause");
-  };
-  const handleSeeked = () => {
-    if (!isAdmin) return;
-    emitVideoAction("seek");
-  };
+  const handlePause = () => { if (!isAdmin) return; emitVideoAction("pause"); };
+  const handleSeeked = () => { if (!isAdmin) return; emitVideoAction("seek"); };
 
   // ---------------------------------------------------------------
-  // CHAT GÖNDERME
+  // CHAT
   // ---------------------------------------------------------------
   const handleSendMessage = () => {
     const text = draft.trim();
@@ -645,43 +703,27 @@ export default function App() {
     socketRef.current.emit("typing_stop", { room: roomName.trim() });
   };
 
-  const handleChatKeyDown = (e) => {
-    if (e.key === "Enter") handleSendMessage();
-  };
+  const handleChatKeyDown = (e) => { if (e.key === "Enter") handleSendMessage(); };
 
   const handleDraftChange = (e) => {
     setDraft(e.target.value);
-    if (socketRef.current) {
-      socketRef.current.emit("typing", { room: roomName.trim(), sender: myName.trim() });
-    }
+    if (socketRef.current) socketRef.current.emit("typing", { room: roomName.trim(), sender: myName.trim() });
     clearTimeout(typingTimerRef.current);
     typingTimerRef.current = setTimeout(() => {
-      if (socketRef.current) {
-        socketRef.current.emit("typing_stop", { room: roomName.trim() });
-      }
+      if (socketRef.current) socketRef.current.emit("typing_stop", { room: roomName.trim() });
     }, 1000);
   };
 
   // ---------------------------------------------------------------
-  // ODAYI TERK ETME
+  // ODA TERK
   // ---------------------------------------------------------------
   const handleLeaveRoom = () => {
     if (!confirm("Odadan ayrılmak istediğine emin misin?")) return;
-    
     cleanupWebRTC();
     socketRef.current.disconnect();
-    
-    setJoined(false);
-    setRoomName("");
-    setVideoSrc(null);
-    setVideoFileName("");
-    setVideoFileMeta(null);
-    setMessages([]);
-    setPeerCount(1);
-    setPeerName("");
-    setIsAdmin(false);
-    setFileMismatch(false);
-    setPeerTimeDiff(null);
+    setJoined(false); setRoomName(""); setVideoSrc(null); setVideoFileName("");
+    setVideoFileMeta(null); setMessages([]); setPeerCount(1); setPeerName("");
+    setIsAdmin(false); setFileMismatch(false); setPeerTimeDiff(null);
     saveSession(null);
   };
 
@@ -702,14 +744,20 @@ export default function App() {
   };
 
   // =================================================================
-  // ŞİFRE EKRANI (GEÇİCİ KORUMA)
+  // ŞİFRE EKRANI
   // =================================================================
   if (!isAuthenticated) {
     return (
       <div className="lobby">
+        {/* Theme toggle */}
+        <button className="theme-toggle btn-toggle" onClick={toggleTheme} title="Karanlık / Aydınlık mod">
+          <span className="icon-moon"><MoonIcon /></span>
+          <span className="icon-sun"><SunIcon /></span>
+        </button>
+
         <div className="lobby-card" style={{ textAlign: "center" }}>
-          <h1 className="lobby-brand">
-            Sync<span>Cinema</span>
+          <h1 className="lobby-brand" style={{ justifyContent: "center", marginBottom: "12px" }}>
+            SYNC<span>CİNEMA</span>
           </h1>
           <p className="lobby-tagline">Sistem şu an kapalı betadadır.</p>
           <label className="field-label">Giriş Şifresi</label>
@@ -719,15 +767,10 @@ export default function App() {
             placeholder="Şifreyi giriniz"
             value={authPass}
             onChange={(e) => setAuthPass(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && authPass === "12345") {
-                setIsAuthenticated(true);
-              }
-            }}
+            onKeyDown={(e) => { if (e.key === "Enter" && authPass === "12345") setIsAuthenticated(true); }}
           />
           <button
             className="enter-btn"
-            style={{ marginTop: "1rem" }}
             onClick={() => {
               if (authPass === "12345") setIsAuthenticated(true);
               else alert("Hatalı şifre!");
@@ -741,18 +784,24 @@ export default function App() {
   }
 
   // =================================================================
-  // LOBİ EKRANI
+  // LOBİ
   // =================================================================
   if (!joined) {
     return (
       <div className="lobby">
+        {/* Theme toggle */}
+        <button className="theme-toggle btn-toggle" onClick={toggleTheme} title="Karanlık / Aydınlık mod">
+          <span className="icon-moon"><MoonIcon /></span>
+          <span className="icon-sun"><SunIcon /></span>
+        </button>
+
         <div className="lobby-card">
           <h1 className="lobby-brand">
-            Sync<span>Cinema</span>
+            SYNC<span>CİNEMA</span>
           </h1>
           <p className="lobby-tagline">
-            Aynı filmi, aynı anda, farklı şehirlerde izleyin. Video hiçbir yere
-            yüklenmez — sadece oynatma sinyalleri senkronize edilir.
+            Aynı filmi, aynı anda, farklı şehirlerde izleyin.
+            Video hiçbir yere yüklenmez — sadece oynatma sinyalleri senkronize edilir.
           </p>
 
           <label className="field-label">Senin Adın</label>
@@ -761,36 +810,31 @@ export default function App() {
             placeholder="örn. Mustafa"
             value={myName}
             onChange={(e) => setMyName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && myName.trim() && handleCreateRoom()}
           />
 
           <div className="lobby-actions">
             <button
-              className={`lobby-btn ${lobbyMode === "create" ? "active" : ""}`}
+              className="lobby-btn primary"
               disabled={!connected || !myName.trim()}
               onClick={handleCreateRoom}
-              title="Yeni bir oda oluştur ve bağlan"
             >
-              <span className="icon">🎬</span>
+              <VideoIcon />
               Oda Oluştur
             </button>
             <button
-              className={`lobby-btn ${lobbyMode === "join" ? "active" : ""}`}
+              className="lobby-btn secondary"
               disabled={!connected || !myName.trim()}
-              onClick={() => {
-                setLobbyMode("join");
-                setRoomName("");
-                setLobbyError("");
-              }}
-              title="Var olan bir odaya katıl"
+              onClick={() => { setLobbyMode("join"); setRoomName(""); setLobbyError(""); }}
             >
-              <span className="icon">🔑</span>
+              <KeyIcon />
               Odaya Katıl
             </button>
           </div>
 
           {lobbyMode === "join" && (
             <div className="lobby-join-section">
-              <label className="field-label">5 Haneli Oda Kodu</label>
+              <label className="field-label" style={{ marginTop: "4px" }}>5 Haneli Oda Kodu</label>
               <input
                 className="field-input"
                 placeholder="örn. 12345"
@@ -811,9 +855,7 @@ export default function App() {
             </div>
           )}
 
-          {lobbyError && (
-            <div className="lobby-error">⚠️ {lobbyError}</div>
-          )}
+          {lobbyError && <div className="lobby-error">⚠️ {lobbyError}</div>}
 
           <div className="conn-note">
             <span className={`dot ${connected ? "online" : "offline"}`} />
@@ -825,105 +867,123 @@ export default function App() {
   }
 
   // =================================================================
-  // ANA UYGULAMA EKRANI
+  // ANA UYGULAMA
   // =================================================================
   return (
     <div className="app-shell">
       <audio ref={remoteAudioRef} autoPlay />
-      <button 
-        className="chat-toggle-btn" 
+
+      {/* Mobile Chat Toggle */}
+      <button
+        className="chat-toggle-btn"
         onClick={() => { setMobileChatOpen(!mobileChatOpen); setUnreadCount(0); }}
       >
-        {mobileChatOpen ? "✕" : "💬"}
+        {mobileChatOpen ? "✕" : <ChatToggleIcon />}
         {!mobileChatOpen && unreadCount > 0 && (
           <span className="chat-toggle-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>
         )}
       </button>
-      <div className="topbar">
+
+      {/* ====== HEADER ====== */}
+      <header className="topbar">
+        {/* Logo */}
         <div className="topbar-brand">
-          Sync<span>Cinema</span>
+          SYNC<span>CİNEMA</span>
         </div>
-        <div className="room-share-container">
-          <span className="room-label">Oda Kodu:</span>
-          <span className="room-code-display">{roomName}</span>
-          <button className={`copy-btn ${copied ? "copied" : ""}`} onClick={handleCopyCode}>
-            {copied ? "Kopyalandı! ✓" : "Kopyala 📋"}
+
+        {/* Center: oda kodu + kopyala + admin */}
+        <div className="header-mid">
+          <div className="room-share-container">
+            <span className="room-label">ODA KODU</span>
+            <span className="room-code-display">{roomName}</span>
+          </div>
+          <button className={`btn-ghost copy-btn ${copied ? "copied" : ""}`} onClick={handleCopyCode}>
+            <CopyIcon />
+            {copied ? "Kopyalandı" : "Kopyala"}
           </button>
-          {isAdmin && <span className="admin-badge">👑 ADMIN</span>}
+          {isAdmin && <div className="admin-badge">ADMİN</div>}
         </div>
-        <div className="presence" style={{ display: "flex", gap: "16px", alignItems: "center" }}>
-          <div>
-            <span className={`dot ${peerCount > 1 ? "online" : "offline"}`} />
+
+        {/* Right: status + ses aç + toggle + çık */}
+        <div className="header-right">
+          <div className="presence">
+            <span className="dot-pulse" />
             {peerCount > 1 ? `${peerName || "Karşı taraf"} odada` : "Karşı taraf bekleniyor..."}
           </div>
 
-          <div className="voice-status">
-            <span className={`dot ${voiceConnected ? "online" : "offline"}`} />
-            {voiceConnected ? "Sesli sohbet açık" : "Sesli sohbet kapalı"}
-          </div>
-          
-          <button 
-            className={`mic-btn ${micEnabled ? 'active' : ''}`} 
+          <button
+            className={`btn-ghost mic-btn ${micEnabled ? "active" : ""}`}
             onClick={toggleMic}
             disabled={!voiceReady}
-            title={!voiceReady ? "Sesli sohbet için önce videoyu aç ve karşı tarafı bekle" : "Sesli sohbete bağlan"}
+            title={!voiceReady ? "Sesli sohbet için önce videoyu aç ve karşı tarafı bekle" : ""}
           >
-            {micEnabled ? "🎙️ Sesi Kapat" : "🎤 Sesi Aç"}
+            <MicIcon />
+            {micEnabled ? "Sesi Kapat" : "Sesi Aç"}
           </button>
-          
-          <button 
-            className="mic-btn leave-btn"
-            onClick={handleLeaveRoom}
-            title="Odadan ayrıl"
-          >
-            🚪 Çık
+
+          <button className="btn-toggle topbar-theme-toggle" onClick={toggleFullscreen} title="Tam Ekran">
+            <FullscreenIcon isFullscreen={isFullscreen} />
+          </button>
+
+          <button className="btn-toggle topbar-theme-toggle" onClick={toggleTheme} title="Karanlık / Aydınlık mod">
+            <span className="icon-moon"><MoonIcon /></span>
+            <span className="icon-sun"><SunIcon /></span>
+          </button>
+
+          <button className="btn-exit leave-btn" onClick={handleLeaveRoom}>
+            Çık
           </button>
         </div>
-      </div>
 
+        {/* Filmstrip sprockets — header altında */}
+        <div className="sprockets" />
+      </header>
+
+      {/* ====== MAIN LAYOUT ====== */}
       <div className="main-layout">
-        <div className="video-pane">
+
+        {/* ====== STAGE (video) ====== */}
+        <div className={`video-pane ${videoSrc ? "has-video" : ""}`}>
           {fileMismatch && (
             <div className="file-mismatch-banner">
-              ⚠️ Farklı video dosyası! Senkronizasyon çalışmayabilir — her iki taraf da aynı dosyayı seçmeli.
+              ⚠️ Farklı video dosyası! Senkronizasyon çalışmayabilir.
             </div>
           )}
 
           {!videoSrc ? (
             <div className="picker-zone">
-              <div className="reel">🎬</div>
-              <div>İzlemek istediğin video dosyasını seç.</div>
-              <div style={{ fontSize: 12, marginTop: 4, opacity: 0.7 }}>
-                Karşı tarafın da diskinde aynı dosya olmalı.
-              </div>
-              <label className="picker-label">
-                Video Seç
-                <input
-                  type="file"
-                  accept="video/*"
-                  onChange={handleFileSelect}
-                  style={{ display: "none" }}
-                />
-              </label>
-              <div style={{ marginTop: 12, fontSize: 12, opacity: 0.6 }}>
-                Altyazı dosyası seçmek isteğe bağlı (SRT, VTT)
-              </div>
-              <label className="picker-label" style={{ background: "var(--panel-2)", color: "var(--text)", border: "1px solid var(--border)" }}>
-                Altyazı Seç (opsiyonel)
-                <input
-                  type="file"
-                  accept=".srt,.vtt,.sub"
-                  onChange={handleSubtitleSelect}
-                  style={{ display: "none" }}
-                />
-              </label>
-              {subtitleName && (
-                <div style={{ marginTop: 8, fontSize: 12, color: "var(--sync)" }}>
-                  ✓ {subtitleName} yüklendi
+              <div className="picker-card">
+                {/* Clapper SVG — birebir mockup */}
+                <div className="clapper-wrap">
+                  <ClapperIcon />
                 </div>
-              )}
+
+                <h2 className="picker-card-title">İzlemek istediğin videoyu seç</h2>
+                <p className="picker-card-desc">
+                  Karşı tarafın diskinde de aynı dosya olmalı — SyncCinema videoyu göndermez, sadece zamanlamayı eşitler.
+                </p>
+
+                {/* Gizli file inputs */}
+                <input ref={videoFileInputRef} type="file" accept="video/*" onChange={handleFileSelect} style={{ display: "none" }} />
+                <button className="btn-primary picker-btn" onClick={() => videoFileInputRef.current?.click()}>
+                  Video Seç
+                </button>
+
+                <div className="picker-divider">opsiyonel</div>
+
+                <input ref={subtitleFileInputRef} type="file" accept=".srt,.vtt,.sub" onChange={handleSubtitleSelect} style={{ display: "none" }} />
+                <button className="btn-secondary picker-btn-ghost" onClick={() => subtitleFileInputRef.current?.click()}>
+                  Altyazı Seç (SRT, VTT)
+                </button>
+
+                {subtitleName && (
+                  <div style={{ marginTop: 12, textAlign: "center" }}>
+                    <span className="subtitle-loaded-chip">✓ {subtitleName}</span>
+                  </div>
+                )}
+              </div>
             </div>
-           ) : (
+          ) : (
             <>
               <video
                 ref={videoRef}
@@ -940,83 +1000,61 @@ export default function App() {
                   "--sub-color": subtitleSettings.color
                 }}
               >
-                {subtitleSrc && (
-                  <track
-                    src={subtitleSrc}
-                    kind="subtitles"
-                    srcLang="tr"
-                    label="Türkçe"
-                    default
-                  />
-                )}
+                {subtitleSrc && <track src={subtitleSrc} kind="subtitles" srcLang="tr" label="Türkçe" default />}
                 {subtitleTracks.map((track) => (
-                  <track
-                    key={track.id}
-                    kind="subtitles"
-                    srcLang={track.language}
-                    label={track.name || track.language}
-                  />
+                  <track key={track.id} kind="subtitles" srcLang={track.language} label={track.name || track.language} />
                 ))}
               </video>
+
               {!isAdmin && peerCount > 1 && (
-                <div className="admin-only-banner">
-                  ⚠️ Sadece oda sahibi videoyu kontrol edebilir
-                </div>
+                <div className="admin-only-banner">⚠️ Sadece oda sahibi videoyu kontrol edebilir</div>
               )}
+
               {subtitleSrc && (
                 <div className="subtitle-indicator">
-                  💬 Altyazı ayarları
-                  <button 
-                    className="subtitle-settings-btn"
-                    onClick={() => setShowSubtitleSettings(!showSubtitleSettings)}
-                  >
-                    ⚙️
-                  </button>
+                  💬 Altyazı
+                  <button className="subtitle-settings-btn" onClick={() => setShowSubtitleSettings(!showSubtitleSettings)}>⚙️</button>
                 </div>
               )}
+
               {showSubtitleSettings && (
                 <div className="subtitle-settings-panel">
                   <div className="subtitle-settings-title">Altyazı Ayarları</div>
                   <div className="subtitle-setting">
                     <label>Boyut: {subtitleSettings.fontSize}px</label>
                     <input type="range" min="12" max="36" value={subtitleSettings.fontSize}
-                      onChange={(e) => setSubtitleSettings({...subtitleSettings, fontSize: Number(e.target.value)})} />
+                      onChange={(e) => setSubtitleSettings({ ...subtitleSettings, fontSize: Number(e.target.value) })} />
                   </div>
                   <div className="subtitle-setting">
                     <label>Dikey Konum: %{subtitleSettings.top}</label>
                     <input type="range" min="5" max="80" value={subtitleSettings.top}
-                      onChange={(e) => setSubtitleSettings({...subtitleSettings, top: Number(e.target.value)})} />
+                      onChange={(e) => setSubtitleSettings({ ...subtitleSettings, top: Number(e.target.value) })} />
                   </div>
                   <div className="subtitle-setting">
                     <label>Yatay Konum: %{subtitleSettings.left}</label>
                     <input type="range" min="0" max="50" value={subtitleSettings.left}
-                      onChange={(e) => setSubtitleSettings({...subtitleSettings, left: Number(e.target.value)})} />
+                      onChange={(e) => setSubtitleSettings({ ...subtitleSettings, left: Number(e.target.value) })} />
                   </div>
                   <div className="subtitle-setting">
                     <label>Arka Plan: %{subtitleSettings.bgOpacity}</label>
                     <input type="range" min="0" max="100" value={subtitleSettings.bgOpacity}
-                      onChange={(e) => setSubtitleSettings({...subtitleSettings, bgOpacity: Number(e.target.value)})} />
+                      onChange={(e) => setSubtitleSettings({ ...subtitleSettings, bgOpacity: Number(e.target.value) })} />
                   </div>
                   <div className="subtitle-setting">
                     <label>Renk:</label>
                     <input type="color" value={subtitleSettings.color}
-                      onChange={(e) => setSubtitleSettings({...subtitleSettings, color: e.target.value})} />
+                      onChange={(e) => setSubtitleSettings({ ...subtitleSettings, color: e.target.value })} />
                   </div>
                 </div>
               )}
+
               <div className={`sync-flash ${showSyncFlash ? "show" : ""}`}>
                 <span className="pulse-dot" />
                 Senkronize edildi
               </div>
 
               {flyingEmojis.map((e) => (
-                <div
-                  key={e.id}
-                  className="flying-emoji"
-                  style={{ left: `${e.x}%` }}
-                >
-                  {e.emoji}
-                </div>
+                <div key={e.id} className="flying-emoji" style={{ left: `${e.x}%` }}>{e.emoji}</div>
               ))}
 
               {peerCount > 1 && peerTimeDiff !== null && (
@@ -1029,62 +1067,57 @@ export default function App() {
           )}
         </div>
 
+        {/* ====== SIDEBAR (SOHBET) ====== */}
         <div className={`chat-pane ${mobileChatOpen ? "mobile-open" : ""}`}>
+          {/* Header */}
+          <div className="chat-header">
+            <h3 className="chat-header-title">SOHBET</h3>
+            <span className="chat-online-badge">{peerCount} çevrimiçi</span>
+          </div>
+
+          {/* Reactions */}
           {videoSrc && (
             <div className="reaction-btn-bar">
               {REACTIONS.map((emoji) => (
-                <button
-                  key={emoji}
-                  className="reaction-btn"
-                  onClick={() => handleReaction(emoji)}
-                  title={emoji}
-                >
-                  {emoji}
-                </button>
+                <button key={emoji} className="reaction-btn" onClick={() => handleReaction(emoji)}>{emoji}</button>
               ))}
             </div>
           )}
 
-          <div className="chat-header">
-            <span>Sohbet</span>
-            <button 
-              className="chat-close-btn"
-              onClick={() => setMobileChatOpen(false)}
-              style={{ 
-                display: "none",
-                background: "var(--panel-2)", 
-                border: "1px solid var(--border)", 
-                borderRadius: "6px",
-                color: "var(--text)", 
-                padding: "4px 10px", 
-                fontSize: "12px", 
-                cursor: "pointer" 
-              }}
-            >
-              ✕ Kapat
-            </button>
-          </div>
+          {/* Messages */}
           <div className="chat-messages">
             {systemNotice && <div className="system-msg">{systemNotice}</div>}
-            {messages.map((m, i) => {
-              const isMe = m.sender === myName.trim();
-              return (
-                <div key={i} className={`bubble-row ${isMe ? "me" : "them"}`}>
-                  {!isMe && <span className="bubble-sender">{m.sender}</span>}
-                  <div className="bubble">{m.message}</div>
-                </div>
-              );
-            })}
+
+            {messages.length === 0 && !systemNotice ? (
+              <div className="chat-empty-state">
+                <div className="chat-empty-icon"><ChatBubbleIcon /></div>
+                <span className="chat-empty-text">
+                  Henüz mesaj yok.<br />
+                  Karşı taraf katılınca sohbet burada akacak.
+                </span>
+              </div>
+            ) : (
+              messages.map((m, i) => {
+                const isMe = m.sender === myName.trim();
+                return (
+                  <div key={i} className={`bubble-row ${isMe ? "me" : "them"}`}>
+                    {!isMe && <span className="bubble-sender">{m.sender}</span>}
+                    <div className="bubble">{m.message}</div>
+                  </div>
+                );
+              })
+            )}
+
             {peerIsTyping && (
               <div className="typing-indicator">
                 <span className="typing-name">{peerName || "Karşı taraf"}</span> yazıyor
-                <span className="typing-dots">
-                  <span /><span /><span />
-                </span>
+                <span className="typing-dots"><span /><span /><span /></span>
               </div>
             )}
             <div ref={chatEndRef} />
           </div>
+
+          {/* Input */}
           <div className="chat-input-row">
             <input
               placeholder="Mesaj yaz..."
@@ -1092,7 +1125,9 @@ export default function App() {
               onChange={handleDraftChange}
               onKeyDown={handleChatKeyDown}
             />
-            <button onClick={handleSendMessage}>Gönder</button>
+            <button className="chat-send-btn" onClick={handleSendMessage}>
+              <SendIcon />
+            </button>
           </div>
         </div>
       </div>
