@@ -214,6 +214,7 @@ export default function App() {
   const [subtitleSettings, setSubtitleSettings] = useState(loadSubtitleSettings);
   const [subtitleTracks, setSubtitleTracks] = useState([]);
   const [showSubtitleSettings, setShowSubtitleSettings] = useState(false);
+  const [activeCueText, setActiveCueText] = useState("");
 
   useEffect(() => {
     localStorage.setItem("synccinema_subtitle_settings", JSON.stringify(subtitleSettings));
@@ -466,35 +467,39 @@ export default function App() {
   useEffect(() => {
     if (!videoSrc || !videoRef.current) return;
     const video = videoRef.current;
-    const forceCenterCue = (cue) => {
-      if (cue && typeof cue.align !== 'undefined') {
-        cue.align = "center";
-        cue.position = 50;
-      }
-    };
-    const enableAndCenter = () => {
-      if (video.textTracks) {
-        for (let i = 0; i < video.textTracks.length; i++) {
-          const t = video.textTracks[i];
-          if (t.kind === "subtitles" || t.kind === "captions" || t.kind === "metadata") {
-            t.mode = "showing";
-            // Var olan cue'ları ortala
-            if (t.cues) {
-              for (let j = 0; j < t.cues.length; j++) {
-                forceCenterCue(t.cues[j]);
+
+    const setupTracks = () => {
+      if (!video.textTracks) return;
+      for (let i = 0; i < video.textTracks.length; i++) {
+        const t = video.textTracks[i];
+        if (t.kind === "subtitles" || t.kind === "captions" || t.kind === "metadata") {
+          t.mode = "hidden";
+          t.oncuechange = () => {
+            if (t.activeCues && t.activeCues.length > 0) {
+              const texts = [];
+              for (let j = 0; j < t.activeCues.length; j++) {
+                texts.push(t.activeCues[j].text);
               }
+              setActiveCueText(texts.join("\n"));
+            } else {
+              setActiveCueText("");
             }
-            // Yeni eklenecek cue'ları ortala
-            t.onaddcue = (e) => forceCenterCue(e.cue);
-          }
+          };
         }
       }
     };
-    video.addEventListener("loadedmetadata", enableAndCenter);
-    video.addEventListener("loadeddata", enableAndCenter);
-    return () => { 
-      video.removeEventListener("loadedmetadata", enableAndCenter); 
-      video.removeEventListener("loadeddata", enableAndCenter); 
+
+    video.addEventListener("loadedmetadata", setupTracks);
+    video.addEventListener("loadeddata", setupTracks);
+
+    return () => {
+      video.removeEventListener("loadedmetadata", setupTracks);
+      video.removeEventListener("loadeddata", setupTracks);
+      if (video.textTracks) {
+        for (let i = 0; i < video.textTracks.length; i++) {
+          video.textTracks[i].oncuechange = null;
+        }
+      }
     };
   }, [videoSrc]);
 
@@ -590,34 +595,95 @@ export default function App() {
   // ---------------------------------------------------------------
   // DOSYA
   // ---------------------------------------------------------------
+  const formatVTTTimestamp = (seconds) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    const ms = Math.round((seconds % 1) * 1000);
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
+  };
+
   const extractEmbeddedSubtitles = (file) => {
     return new Promise((resolve) => {
       try {
         const reader = new FileReader();
         reader.onload = (e) => {
-          const ab = e.target.result;
-          const mp4 = MP4Box.createFile();
-          const tracks = [];
-          mp4.onReady = (info) => {
-            info.tracks.forEach((track) => {
-              if (track.type === "text" || (track.codec && (
-                track.codec.includes("text") || track.codec.includes("subt") ||
-                track.codec.includes("stpp") || track.codec.includes("wvtt") ||
-                track.kind === "subtitles"
-              ))) {
-                tracks.push({ id: track.id, codec: track.codec, language: track.language || "und", name: track.name || "Altyazı" });
+          try {
+            const buffer = e.target.result;
+            const mp4 = MP4Box.createFile();
+            const extractedTracks = [];
+            const pendingTracks = new Set();
+
+            mp4.onReady = (info) => {
+              info.tracks.forEach((track) => {
+                const isText = track.type === "text" ||
+                  (track.codec && (
+                    track.codec.includes("text") || track.codec.includes("subt") ||
+                    track.codec.includes("stpp") || track.codec.includes("wvtt") ||
+                    track.kind === "subtitles"
+                  ));
+                if (isText) {
+                  extractedTracks.push({
+                    id: track.id,
+                    codec: track.codec,
+                    language: track.language || "und",
+                    name: track.name || "Altyazı",
+                    vttContent: null
+                  });
+                  pendingTracks.add(track.id);
+                  mp4.setExtractionOptions(track.id);
+                }
+              });
+
+              if (pendingTracks.size === 0) {
+                mp4.flush();
+                resolve([]);
+                return;
               }
-            });
-            resolve(tracks);
-          };
-          mp4.onError = () => resolve([]);
-          const chunk = new Uint8Array(ab.slice(0, 1024 * 1024));
-          chunk.fileStart = 0;
-          mp4.appendBuffer(chunk);
-          mp4.flush();
+            };
+
+            mp4.onSamples = (trackId, user, samples) => {
+              if (!pendingTracks.has(trackId)) return;
+              pendingTracks.delete(trackId);
+
+              const track = extractedTracks.find((t) => t.id === trackId);
+              if (!track) return;
+
+              let vttContent = "WEBVTT\n\n";
+              const decoder = new TextDecoder("utf-8");
+              let idx = 0;
+
+              samples.forEach((sample) => {
+                try {
+                  const rawBytes = new Uint8Array(sample.data);
+                  const text = decoder.decode(rawBytes).replace(/\0/g, "").trim();
+                  if (!text) return;
+
+                  const start = formatVTTTimestamp(sample.cts / sample.timescale);
+                  const end = formatVTTTimestamp((sample.cts + sample.duration) / sample.timescale);
+                  vttContent += `${++idx}\n${start} --> ${end}\n${text}\n\n`;
+                } catch (_) {}
+              });
+
+              track.vttContent = vttContent;
+
+              if (pendingTracks.size === 0) {
+                resolve(extractedTracks.filter((t) => t.vttContent));
+              }
+            };
+
+            mp4.onError = () => resolve([]);
+
+            buffer.fileStart = 0;
+            mp4.appendBuffer(buffer);
+            mp4.flush();
+          } catch (err) {
+            console.warn("Embedded altyazı çıkarma hatası:", err);
+            resolve([]);
+          }
         };
         reader.onerror = () => resolve([]);
-        reader.readAsArrayBuffer(file.slice(0, 1024 * 1024));
+        reader.readAsArrayBuffer(file.slice(0, 10 * 1024 * 1024));
       } catch { resolve([]); }
     });
   };
@@ -628,6 +694,7 @@ export default function App() {
     const url = URL.createObjectURL(file);
     setVideoSrc(url);
     setVideoFileName(file.name);
+    setActiveCueText("");
     const tmpVideo = document.createElement("video");
     tmpVideo.preload = "metadata";
     tmpVideo.onloadedmetadata = () => {
@@ -637,8 +704,14 @@ export default function App() {
     };
     tmpVideo.src = url;
     const subs = await extractEmbeddedSubtitles(file);
-    setSubtitleTracks(subs);
-    if (subs.length > 0) setSystemNotice(`💬 ${subs.length} altyazı track'i bulundu.`);
+    const subsWithBlob = subs.map((t) => ({
+      ...t,
+      vttBlobUrl: t.vttContent
+        ? URL.createObjectURL(new Blob([t.vttContent], { type: "text/vtt" }))
+        : null
+    }));
+    setSubtitleTracks(subsWithBlob);
+    if (subsWithBlob.length > 0) setSystemNotice(`💬 ${subsWithBlob.length} altyazı track'i çıkarıldı.`);
   };
 
   const handleSubtitleSelect = (e) => {
@@ -724,6 +797,7 @@ export default function App() {
     setJoined(false); setRoomName(""); setVideoSrc(null); setVideoFileName("");
     setVideoFileMeta(null); setMessages([]); setPeerCount(1); setPeerName("");
     setIsAdmin(false); setFileMismatch(false); setPeerTimeDiff(null);
+    setActiveCueText("");
     saveSession(null);
   };
 
@@ -1000,11 +1074,28 @@ export default function App() {
                   "--sub-color": subtitleSettings.color
                 }}
               >
-                {subtitleSrc && <track src={subtitleSrc} kind="subtitles" srcLang="tr" label="Türkçe" default />}
+                {subtitleSrc && <track src={subtitleSrc} kind="subtitles" srcLang="tr" label="Türkçe" />}
                 {subtitleTracks.map((track) => (
-                  <track key={track.id} kind="subtitles" srcLang={track.language} label={track.name || track.language} />
+                  track.vttBlobUrl && (
+                    <track key={track.id} kind="subtitles" srcLang={track.language} label={track.name || track.language} src={track.vttBlobUrl} />
+                  )
                 ))}
               </video>
+
+              {/* Custom subtitle overlay */}
+              {activeCueText && (
+                <div
+                  className="custom-subtitle-overlay"
+                  style={{
+                    "--sub-font-size": subtitleSettings.fontSize + "px",
+                    "--sub-top": subtitleSettings.top + "%",
+                    "--sub-bg-opacity": subtitleSettings.bgOpacity / 100,
+                    "--sub-color": subtitleSettings.color
+                  }}
+                >
+                  {activeCueText}
+                </div>
+              )}
 
               {!isAdmin && peerCount > 1 && (
                 <div className="admin-only-banner">⚠️ Sadece oda sahibi videoyu kontrol edebilir</div>

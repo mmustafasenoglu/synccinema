@@ -751,30 +751,43 @@ body.dark .admin-only-banner {
   cursor: pointer;
 }
 
+/* Native altyazı render'ını tamamen devre dışı bırak */
 video::cue {
-  background: rgba(0, 0, 0, var(--sub-bg-opacity, 0.85)) !important;
-  color: var(--sub-color, #fff) !important;
-  font-size: var(--sub-font-size, 18px) !important;
-  font-family: 'Inter', sans-serif !important;
-  font-weight: 500 !important;
-  border-radius: 6px !important;
-  padding: 6px 12px !important;
-  text-align: center !important;
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
-
-/* Force subtitles to center horizontally in WebKit (Safari/Chrome) */
 video::-webkit-media-text-track-display {
-  text-align: center !important;
-  display: flex !important;
-  justify-content: center !important;
-  align-items: center !important;
-  left: 0 !important;
-  right: 0 !important;
-  width: 100% !important;
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+video::-webkit-media-text-track-container {
+  display: none !important;
+  visibility: hidden !important;
 }
 
-video::-webkit-media-text-track-container {
-  text-align: center !important;
+/* Custom subtitle overlay — tamamen bizim kontrolümüzde */
+.custom-subtitle-overlay {
+  position: absolute;
+  bottom: var(--sub-top, 15%);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 85%;
+  text-align: center;
+  font-size: var(--sub-font-size, 18px);
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  color: var(--sub-color, #fff);
+  background: rgba(0, 0, 0, var(--sub-bg-opacity, 0.85));
+  padding: 6px 14px;
+  border-radius: 6px;
+  line-height: 1.4;
+  text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+  z-index: 12;
+  white-space: pre-line;
 }
 
 /* =============================================
@@ -1347,6 +1360,11 @@ body.dark .large-copy-btn { color: #1A0410; }
   .header-right, .topbar .header-right { border-left: none; padding-left: 0; margin-left: 0; }
 
   .theme-toggle { top: 10px; right: 10px; width: 34px; height: 34px; }
+
+  .custom-subtitle-overlay {
+    max-width: 92%;
+    font-size: calc(var(--sub-font-size, 18px) - 2px);
+  }
 }
 
 @media (max-width: 480px) {
