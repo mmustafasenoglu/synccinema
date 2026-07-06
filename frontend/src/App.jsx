@@ -489,16 +489,16 @@ export default function App() {
   useEffect(() => {
     if (!videoSrc || !videoRef.current) return;
     const video = videoRef.current;
-    let setupDone = false;
+    const trackedIds = new Set();
 
     const setupTracks = () => {
       if (!video.textTracks) return;
-      let found = false;
       for (let i = 0; i < video.textTracks.length; i++) {
         const t = video.textTracks[i];
+        if (trackedIds.has(t)) continue;
         if (t.kind === "subtitles" || t.kind === "captions" || t.kind === "metadata") {
-          found = true;
-          t.mode = "hidden";
+          trackedIds.add(t);
+          t.mode = "showing";
           t.oncuechange = () => {
             if (t.activeCues && t.activeCues.length > 0) {
               const texts = [];
@@ -512,14 +512,13 @@ export default function App() {
           };
         }
       }
-      if (found) setupDone = true;
     };
 
     video.addEventListener("loadedmetadata", setupTracks);
     video.addEventListener("loadeddata", setupTracks);
 
     const retryInterval = setInterval(() => {
-      if (!setupDone && video.textTracks && video.textTracks.length > 0) {
+      if (video.textTracks && video.textTracks.length > 0) {
         setupTracks();
       }
     }, 500);
@@ -527,7 +526,7 @@ export default function App() {
     const retryTimeout = setTimeout(() => {
       clearInterval(retryInterval);
       setupTracks();
-    }, 5000);
+    }, 10000);
 
     return () => {
       video.removeEventListener("loadedmetadata", setupTracks);
@@ -540,7 +539,7 @@ export default function App() {
         }
       }
     };
-  }, [videoSrc]);
+  }, [videoSrc, subtitleSrc, subtitleTracks.length]);
 
   useEffect(() => {
     if (!joined || !videoSrc || micEnabled) return;
@@ -766,10 +765,11 @@ export default function App() {
                     codec: track.codec,
                     language: track.language || "und",
                     name: track.name || "Altyazı",
-                    vttContent: null
+                    vttContent: null,
+                    allSamples: []
                   });
                   pendingTracks.add(track.id);
-                  mp4.setExtractionOptions(track.id);
+                  mp4.setExtractionOptions(track.id, null, { nbSamples: Infinity });
                 }
               });
 
@@ -782,32 +782,11 @@ export default function App() {
 
             mp4.onSamples = (trackId, user, samples) => {
               if (!pendingTracks.has(trackId)) return;
-              pendingTracks.delete(trackId);
 
               const track = extractedTracks.find((t) => t.id === trackId);
               if (!track) return;
 
-              let vttContent = "WEBVTT\n\n";
-              const decoder = new TextDecoder("utf-8");
-              let idx = 0;
-
-              samples.forEach((sample) => {
-                try {
-                  const rawBytes = new Uint8Array(sample.data);
-                  const text = decoder.decode(rawBytes).replace(/\0/g, "").trim();
-                  if (!text) return;
-
-                  const start = formatVTTTimestamp(sample.cts / sample.timescale);
-                  const end = formatVTTTimestamp((sample.cts + sample.duration) / sample.timescale);
-                  vttContent += `${++idx}\n${start} --> ${end}\n${text}\n\n`;
-                } catch (_) {}
-              });
-
-              track.vttContent = vttContent;
-
-              if (pendingTracks.size === 0) {
-                resolve(extractedTracks.filter((t) => t.vttContent));
-              }
+              track.allSamples.push(...samples);
             };
 
             mp4.onError = () => resolve([]);
@@ -815,13 +794,34 @@ export default function App() {
             buffer.fileStart = 0;
             mp4.appendBuffer(buffer);
             mp4.flush();
+
+            setTimeout(() => {
+              extractedTracks.forEach((track) => {
+                if (track.allSamples.length === 0) return;
+                const decoder = new TextDecoder("utf-8");
+                let vttContent = "WEBVTT\n\n";
+                let idx = 0;
+                track.allSamples.forEach((sample) => {
+                  try {
+                    const rawBytes = new Uint8Array(sample.data);
+                    const text = decoder.decode(rawBytes).replace(/\0/g, "").trim();
+                    if (!text) return;
+                    const start = formatVTTTimestamp(sample.cts / sample.timescale);
+                    const end = formatVTTTimestamp((sample.cts + sample.duration) / sample.timescale);
+                    vttContent += `${++idx}\n${start} --> ${end}\n${text}\n\n`;
+                  } catch (_) {}
+                });
+                track.vttContent = vttContent;
+              });
+              resolve(extractedTracks.filter((t) => t.vttContent));
+            }, 200);
           } catch (err) {
             console.warn("Embedded altyazı çıkarma hatası:", err);
             resolve([]);
           }
         };
         reader.onerror = () => resolve([]);
-        reader.readAsArrayBuffer(file.slice(0, 10 * 1024 * 1024));
+        reader.readAsArrayBuffer(file);
       } catch { resolve([]); }
     });
   };
@@ -1222,10 +1222,10 @@ export default function App() {
                   "--sub-color": subtitleSettings.color
                 }}
               >
-                {subtitleSrc && <track src={subtitleSrc} kind="subtitles" srcLang="tr" label="Türkçe" />}
+                {subtitleSrc && <track src={subtitleSrc} kind="subtitles" srcLang="tr" label="Türkçe" default />}
                 {subtitleTracks.map((track) => (
                   track.vttBlobUrl && (
-                    <track key={track.id} kind="subtitles" srcLang={track.language} label={track.name || track.language} src={track.vttBlobUrl} />
+                    <track key={track.id} kind="subtitles" srcLang={track.language} label={track.name || track.language} src={track.vttBlobUrl} default />
                   )
                 ))}
               </video>
