@@ -261,6 +261,13 @@ export default function App() {
   const remoteAudioRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const voiceAutoStartedRef = useRef(false);
+  const videoFileMetaRef = useRef(videoFileMeta);
+  const myNameRef = useRef(myName);
+  const mobileChatOpenRef = useRef(mobileChatOpen);
+  const isAdminRef = useRef(isAdmin);
+  const initWebRTCRef = useRef(false);
+  const blobUrlsRef = useRef([]);
+  const emojiTimeoutRefs = useRef([]);
 
   // ---------------------------------------------------------------
   // SOCKET
@@ -278,7 +285,7 @@ export default function App() {
       setConnected(true);
       const ss = loadSession();
       const savedRoom = roomNameRef.current || ss?.roomName;
-      const savedName = myName || ss?.myName;
+      const savedName = myNameRef.current || ss?.myName;
       if (savedRoom && savedName) {
         socket.emit("join_room", { roomName: savedRoom, userName: savedName.trim() });
         socket.emit("request_sync", { room: savedRoom });
@@ -289,7 +296,7 @@ export default function App() {
     socket.on("reconnect", () => {
       const ss = loadSession();
       const savedRoom = roomNameRef.current || ss?.roomName;
-      const savedName = myName || ss?.myName;
+      const savedName = myNameRef.current || ss?.myName;
       if (savedRoom && savedName) {
         socket.emit("join_room", { roomName: savedRoom, userName: savedName.trim() });
         socket.emit("request_sync", { room: savedRoom });
@@ -303,6 +310,7 @@ export default function App() {
     };
 
     socket.on("room_status", (data) => {
+      setJoined(true);
       setPeerCount(data.userCount || 1);
       updatePeerName(data.users);
       setIsAdmin(data.isAdmin || false);
@@ -427,10 +435,11 @@ export default function App() {
     });
 
     socket.on("file_info_received", (data) => {
-      if (!videoFileMeta) return;
-      const nameMismatch = data.name !== videoFileMeta.name;
-      const sizeMismatch = Math.abs(data.size - videoFileMeta.size) > 1024 * 100;
-      const durMismatch = data.duration && videoFileMeta.duration && Math.abs(data.duration - videoFileMeta.duration) > 2;
+      const currentMeta = videoFileMetaRef.current;
+      if (!currentMeta) return;
+      const nameMismatch = data.name !== currentMeta.name;
+      const sizeMismatch = Math.abs(data.size - currentMeta.size) > 1024 * 100;
+      const durMismatch = data.duration && currentMeta.duration && Math.abs(data.duration - currentMeta.duration) > 2;
       setFileMismatch(nameMismatch || sizeMismatch || durMismatch);
       if (nameMismatch || sizeMismatch || durMismatch)
         setSystemNotice("⚠️ Farklı video dosyası tespit edildi! Senkronizasyon hatalı olabilir.");
@@ -438,17 +447,28 @@ export default function App() {
 
     socket.on("receive_message", (data) => {
       setMessages((prev) => [...prev, data]);
-      if (!mobileChatOpen) setUnreadCount((prev) => prev + 1);
+      if (!mobileChatOpenRef.current) setUnreadCount((prev) => prev + 1);
     });
 
     socket.on("reaction_received", (data) => spawnEmoji(data.emoji));
     socket.on("typing_received", () => setPeerIsTyping(true));
     socket.on("typing_stop_received", () => setPeerIsTyping(false));
 
-    return () => { cleanupWebRTC(); socket.disconnect(); };
+    return () => {
+      cleanupWebRTC();
+      socket.disconnect();
+      blobUrlsRef.current.forEach(u => revokeBlobUrl(u));
+      blobUrlsRef.current = [];
+      emojiTimeoutRefs.current.forEach(id => clearTimeout(id));
+      emojiTimeoutRefs.current = [];
+    };
   }, []);
 
   useEffect(() => { roomNameRef.current = roomName; }, [roomName]);
+  useEffect(() => { videoFileMetaRef.current = videoFileMeta; }, [videoFileMeta]);
+  useEffect(() => { myNameRef.current = myName; }, [myName]);
+  useEffect(() => { mobileChatOpenRef.current = mobileChatOpen; }, [mobileChatOpen]);
+  useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
   useEffect(() => {
     if (isAuthenticated && joined && roomName && myName) saveSession({ roomName, myName });
@@ -563,6 +583,11 @@ export default function App() {
   };
 
   const initWebRTC = (initiator, initialSignal = null, sendVideo = false) => {
+    if (initWebRTCRef.current) {
+      console.log("[WebRTC] Zaten başlatılıyor, atlanıyor...");
+      return;
+    }
+    initWebRTCRef.current = true;
     console.log(`[WebRTC] Başlatılıyor... initiator: ${initiator}, video: ${sendVideo}`);
     navigator.mediaDevices.getUserMedia({ audio: true, video: sendVideo })
       .then((stream) => {
@@ -573,11 +598,12 @@ export default function App() {
         const peer = new Peer({ initiator, trickle: true, stream });
         peer.on("signal", (data) => {
           console.log(`[WebRTC] Peer sinyal gönderdi: ${data.type}`);
-          socketRef.current.emit("webrtc_signal", { room: roomName.trim(), signal: data });
+          socketRef.current.emit("webrtc_signal", { room: roomNameRef.current.trim(), signal: data });
         });
         peer.on("connect", () => {
           console.log("[WebRTC] Peer bağlandı!");
           setVoiceConnected(true);
+          initWebRTCRef.current = false;
         });
         peer.on("stream", (remoteStream) => {
           console.log(`[WebRTC] Remote stream alındı. Audio: ${remoteStream.getAudioTracks().length}, Video: ${remoteStream.getVideoTracks().length}`);
@@ -585,7 +611,6 @@ export default function App() {
             remoteAudioRef.current.srcObject = remoteStream;
             remoteAudioRef.current.play().catch(() => {});
           }
-          // Check if remote stream has video tracks
           const hasVideo = remoteStream.getVideoTracks().length > 0;
           if (hasVideo) {
             console.log("[WebRTC] Remote video akışı var, gösteriliyor...");
@@ -594,6 +619,7 @@ export default function App() {
         });
         peer.on("error", (err) => {
           console.error("[WebRTC] Hata:", err.message);
+          initWebRTCRef.current = false;
           cleanupWebRTC();
         });
         if (initialSignal) peer.signal(initialSignal);
@@ -601,6 +627,7 @@ export default function App() {
       })
       .catch((err) => {
         console.error("[WebRTC] getUserMedia hatası:", err.message);
+        initWebRTCRef.current = false;
         setSystemNotice("Mikrofon/kamera erişimine izin vermeniz gerekiyor.");
       });
   };
@@ -699,7 +726,8 @@ export default function App() {
     const id = ++emojiIdRef.current;
     const x = 10 + Math.random() * 80;
     setFlyingEmojis((prev) => [...prev, { id, emoji, x }]);
-    setTimeout(() => setFlyingEmojis((prev) => prev.filter((e) => e.id !== id)), 2200);
+    const timeoutId = setTimeout(() => setFlyingEmojis((prev) => prev.filter((e) => e.id !== id)), 2200);
+    emojiTimeoutRefs.current.push(timeoutId);
   }, []);
 
   // ---------------------------------------------------------------
@@ -711,14 +739,12 @@ export default function App() {
     const code = String(Math.floor(10000 + Math.random() * 90000));
     setRoomName(code);
     socketRef.current.emit("join_room", { roomName: code, userName: myName.trim() });
-    setJoined(true);
   };
 
   const handleJoinRoom = () => {
     if (!roomName.trim() || !myName.trim()) return;
     setLobbyError("");
     socketRef.current.emit("join_room", { roomName: roomName.trim(), userName: myName.trim() });
-    setJoined(true);
   };
 
   const handleCopyCode = () => {
@@ -826,13 +852,28 @@ export default function App() {
     });
   };
 
+  const revokeBlobUrl = (url) => {
+    if (url && url.startsWith("blob:")) {
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const trackBlobUrl = (url) => {
+    if (url && url.startsWith("blob:")) {
+      blobUrlsRef.current.push(url);
+    }
+  };
+
   const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const oldUrl = videoSrc;
     const url = URL.createObjectURL(file);
+    trackBlobUrl(url);
     setVideoSrc(url);
     setVideoFileName(file.name);
     setActiveCueText("");
+    revokeBlobUrl(oldUrl);
     const tmpVideo = document.createElement("video");
     tmpVideo.preload = "metadata";
     tmpVideo.onloadedmetadata = () => {
@@ -848,6 +889,7 @@ export default function App() {
         ? URL.createObjectURL(new Blob([t.vttContent], { type: "text/vtt" }))
         : null
     }));
+    subsWithBlob.forEach(t => trackBlobUrl(t.vttBlobUrl));
     setSubtitleTracks(subsWithBlob);
     if (subsWithBlob.length > 0) setSystemNotice(`💬 ${subsWithBlob.length} altyazı track'i çıkarıldı.`);
   };
@@ -860,21 +902,25 @@ export default function App() {
       const reader = new FileReader();
       reader.onload = (ev) => {
         let text = ev.target.result;
-        // Remove formatting tags like {\an8} that force positions
         text = text.replace(/\{\\[^}]+\}/g, '');
-        // Convert SRT timestamps to VTT format (replace comma with dot)
         text = text.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
-        // Add WEBVTT header
         const vttText = "WEBVTT\n\n" + text;
         const blob = new Blob([vttText], { type: 'text/vtt' });
-        setSubtitleSrc(URL.createObjectURL(blob));
+        const oldSubSrc = subtitleSrc;
+        const newUrl = URL.createObjectURL(blob);
+        trackBlobUrl(newUrl);
+        setSubtitleSrc(newUrl);
         setSubtitleName(file.name);
+        revokeBlobUrl(oldSubSrc);
       };
-      // Try to read as UTF-8, though Turkish ANSI might be an issue. Standardizing on UTF-8.
       reader.readAsText(file);
     } else {
-      setSubtitleSrc(URL.createObjectURL(file));
+      const oldSubSrc = subtitleSrc;
+      const newUrl = URL.createObjectURL(file);
+      trackBlobUrl(newUrl);
+      setSubtitleSrc(newUrl);
       setSubtitleName(file.name);
+      revokeBlobUrl(oldSubSrc);
     }
   };
 
@@ -890,10 +936,13 @@ export default function App() {
     });
   }, [roomName, isAdmin]);
 
-  const handlePlay = () => {
+  const handlePlay = (e) => {
     if (!isAdmin) {
+      e.preventDefault();
       const video = videoRef.current;
-      if (video && !isIncomingSignal.current) setTimeout(() => { video.pause(); }, 50);
+      if (video && !isIncomingSignal.current) {
+        video.pause();
+      }
       return;
     }
     emitVideoAction("play");
@@ -907,7 +956,7 @@ export default function App() {
   const handleSendMessage = () => {
     const text = draft.trim();
     if (!text) return;
-    const payload = { room: roomName.trim(), message: text, sender: myName.trim() };
+    const payload = { room: roomName.trim(), message: text, sender: myName.trim(), id: `${Date.now()}-${Math.random()}` };
     socketRef.current.emit("send_message", payload);
     setMessages((prev) => [...prev, payload]);
     setDraft("");
@@ -918,11 +967,14 @@ export default function App() {
 
   const handleDraftChange = (e) => {
     setDraft(e.target.value);
-    if (socketRef.current) socketRef.current.emit("typing", { room: roomName.trim(), sender: myName.trim() });
+    if (!typingTimerRef.current) {
+      if (socketRef.current) socketRef.current.emit("typing", { room: roomName.trim(), sender: myName.trim() });
+    }
     clearTimeout(typingTimerRef.current);
     typingTimerRef.current = setTimeout(() => {
       if (socketRef.current) socketRef.current.emit("typing_stop", { room: roomName.trim() });
-    }, 1000);
+      typingTimerRef.current = null;
+    }, 300);
   };
 
   // ---------------------------------------------------------------
@@ -931,11 +983,20 @@ export default function App() {
   const handleLeaveRoom = () => {
     if (!confirm("Odadan ayrılmak istediğine emin misin?")) return;
     cleanupWebRTC();
-    socketRef.current.disconnect();
+    if (socketRef.current) {
+      socketRef.current.emit("leave_room", { room: roomName.trim() });
+    }
+    revokeBlobUrl(videoSrc);
+    revokeBlobUrl(subtitleSrc);
+    subtitleTracks.forEach(t => revokeBlobUrl(t.vttBlobUrl));
+    blobUrlsRef.current.forEach(u => revokeBlobUrl(u));
+    blobUrlsRef.current = [];
+    emojiTimeoutRefs.current.forEach(id => clearTimeout(id));
+    emojiTimeoutRefs.current = [];
     setJoined(false); setRoomName(""); setVideoSrc(null); setVideoFileName("");
     setVideoFileMeta(null); setMessages([]); setPeerCount(1); setPeerName("");
     setIsAdmin(false); setFileMismatch(false); setPeerTimeDiff(null);
-    setActiveCueText("");
+    setActiveCueText(""); setSubtitleSrc(null); setSubtitleTracks([]);
     saveSession(null);
   };
 
@@ -1223,9 +1284,9 @@ export default function App() {
                 }}
               >
                 {subtitleSrc && <track src={subtitleSrc} kind="subtitles" srcLang="tr" label="Türkçe" default />}
-                {subtitleTracks.map((track) => (
+                {subtitleTracks.map((track, idx) => (
                   track.vttBlobUrl && (
-                    <track key={track.id} kind="subtitles" srcLang={track.language} label={track.name || track.language} src={track.vttBlobUrl} default />
+                    <track key={track.id} kind="subtitles" srcLang={track.language} label={track.name || track.language} src={track.vttBlobUrl} {...((!subtitleSrc && idx === 0) ? { default: true } : {})} />
                   )
                 ))}
               </video>
@@ -1365,10 +1426,10 @@ export default function App() {
                 </span>
               </div>
             ) : (
-              messages.map((m, i) => {
+              messages.map((m) => {
                 const isMe = m.sender === myName.trim();
                 return (
-                  <div key={i} className={`bubble-row ${isMe ? "me" : "them"}`}>
+                  <div key={m.id || `${m.sender}-${m.message}`} className={`bubble-row ${isMe ? "me" : "them"}`}>
                     {!isMe && <span className="bubble-sender">{m.sender}</span>}
                     <div className="bubble">{m.message}</div>
                   </div>

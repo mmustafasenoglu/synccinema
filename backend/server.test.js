@@ -39,18 +39,24 @@ describe("SyncCinema Backend Tests", () => {
     const check = () => { if (++ready === 2) join(); };
     const join = () => {
       s1.emit("join_room", { roomName: "video-test", userName: "A" });
-      setTimeout(() => s2.emit("join_room", { roomName: "video-test", userName: "B" }), 50);
+      setTimeout(() => {
+        s2.emit("join_room", { roomName: "video-test", userName: "B" });
+      }, 50);
     };
     s1.on("connect", check);
     s2.on("connect", check);
+    let s2InRoom = false;
+    s2.on("room_status", (data) => {
+      s2InRoom = true;
+      setTimeout(() => {
+        s1.emit("video_action", { room: "video-test", action: "play", currentTime: 10 });
+      }, 100);
+    });
     s2.on("video_action_received", (data) => {
       expect(data.action).toBe("play");
       expect(data.currentTime).toBe(10);
       done();
     });
-    setTimeout(() => {
-      s1.emit("video_action", { room: "video-test", action: "play", currentTime: 10 });
-    }, 300);
   });
 
   test("mesaj karşı tarafa iletilir", (done) => {

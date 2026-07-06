@@ -33,6 +33,26 @@ function createServer() {
   const roomAdmins = {}; // Oda sahibini takip et (socket.id değil, userName olarak)
   const roomTimers = {}; // Oda zamanlayıcıları
   const ROOM_TIMEOUT_MS = 30 * 60 * 1000; // 30 dakika
+  const RATE_LIMIT_WINDOW_MS = 1000; // 1 saniye
+  const RATE_LIMIT_MAX = 15; // pencere başına maksimum event
+  const socketRateLimits = {};
+
+  function checkRateLimit(socketId, eventName) {
+    const now = Date.now();
+    const key = `${socketId}:${eventName}`;
+    if (!socketRateLimits[key]) {
+      socketRateLimits[key] = { count: 1, windowStart: now };
+      return true;
+    }
+    const entry = socketRateLimits[key];
+    if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+      entry.count = 1;
+      entry.windowStart = now;
+      return true;
+    }
+    entry.count++;
+    return entry.count <= RATE_LIMIT_MAX;
+  }
 
   function startRoomTimer(roomName) {
     if (roomTimers[roomName]) return; // Zaten zamanlayıcı var
@@ -114,21 +134,21 @@ function createServer() {
 
       // Admin kontrolü - ilk giren kişi admin, tekrar bağlanırsa da admin kalır
       if (!roomAdmins[roomName]) {
-        // İlk kez oda açılıyor, bu kişi admin
         socket.data.isAdmin = true;
-        roomAdmins[roomName] = userName; // userName olarak sakla
-        console.log(`[join_room] Admin belirlendi: ${userName}`);
-      } else if (roomAdmins[roomName] === userName) {
-        // Orijinal admin tekrar bağlandı
+        roomAdmins[roomName] = socket.id;
+        console.log(`[join_room] Admin belirlendi: ${userName} (${socket.id})`);
+      } else if (roomAdmins[roomName] === socket.id || roomAdmins[roomName] === userName) {
         socket.data.isAdmin = true;
+        roomAdmins[roomName] = socket.id;
         console.log(`[join_room] Admin geri döndü: ${userName}`);
       } else {
-        // Admin değil
         socket.data.isAdmin = false;
       }
 
       const users = getRoomUsers(roomName);
-      const adminName = roomAdmins[roomName];
+      const adminUserId = roomAdmins[roomName];
+      const adminUser = users.find(u => u.socketId === adminUserId);
+      const adminName = adminUser ? adminUser.userName : "";
       console.log(`[join_room] Oda: ${roomName}, Yeni üye sayısı: ${newCount}, Admin: ${adminName}, Kullanıcılar: ${users.map(u => u.userName).join(", ")}`);
 
       socket.to(roomName).emit("user_joined", {
@@ -157,13 +177,16 @@ function createServer() {
 
     socket.on("video_action", (data) => {
       if (!data || !data.room) return;
-      
-      // Sadece admin video kontrolü yapabilir (userName ile kontrol)
-      const adminName = roomAdmins[data.room];
-      if (socket.data.userName !== adminName) {
-        console.log(`[video_action] Reddedildi - Admin değil: ${socket.data.userName} (Admin: ${adminName})`);
+      if (socket.data.room !== data.room) return;
+
+      // Sadece admin video kontrolü yapabilir
+      const adminId = roomAdmins[data.room];
+      if (socket.id !== adminId) {
+        console.log(`[video_action] Reddedildi - Admin değil: ${socket.data.userName} (${socket.id}) (Admin: ${adminId})`);
         return;
       }
+
+      console.log(`[video_action] İzin verildi - Admin: ${socket.data.userName} (${socket.id}), action: ${data.action}`);
 
       roomPlaybackState[data.room] = {
         currentTime: data.currentTime,
@@ -175,9 +198,13 @@ function createServer() {
 
     socket.on("playback_sync", (data) => {
       if (!data || !data.room) return;
+      if (socket.data.room !== data.room) return;
+      const adminId = roomAdmins[data.room];
+      if (socket.id !== adminId) return;
+      const existing = roomPlaybackState[data.room];
       roomPlaybackState[data.room] = {
         currentTime: data.currentTime,
-        isPaused: false,
+        isPaused: existing ? existing.isPaused : false,
         sentAt: Date.now()
       };
       socket.to(data.room).emit("playback_sync_received", data);
@@ -185,6 +212,7 @@ function createServer() {
 
     socket.on("request_sync", (data) => {
       if (!data || !data.room) return;
+      if (socket.data.room !== data.room) return;
       const state = roomPlaybackState[data.room];
       if (state) {
         socket.emit("sync_response", { ...state, sentAt: Date.now() });
@@ -193,26 +221,33 @@ function createServer() {
 
     socket.on("file_info", (data) => {
       if (!data || !data.room) return;
+      if (socket.data.room !== data.room) return;
       socket.to(data.room).emit("file_info_received", data);
     });
 
     socket.on("reaction", (data) => {
       if (!data || !data.room) return;
+      if (socket.data.room !== data.room) return;
+      if (!checkRateLimit(socket.id, "reaction")) return;
       socket.to(data.room).emit("reaction_received", data);
     });
 
     socket.on("typing", (data) => {
       if (!data || !data.room) return;
+      if (socket.data.room !== data.room) return;
+      if (!checkRateLimit(socket.id, "typing")) return;
       socket.to(data.room).emit("typing_received", { sender: data.sender });
     });
 
     socket.on("typing_stop", (data) => {
       if (!data || !data.room) return;
+      if (socket.data.room !== data.room) return;
       socket.to(data.room).emit("typing_stop_received");
     });
 
     socket.on("webrtc_signal", (data) => {
       if (!data || !data.room) return;
+      if (socket.data.room !== data.room) return;
       const signalType = data.signal?.type || "unknown";
       const userName = socket.data.userName || "?";
       console.log(`[webrtc] ${userName} sinyal gönderdi: ${signalType} (Oda: ${data.room})`);
@@ -221,7 +256,29 @@ function createServer() {
 
     socket.on("send_message", (data) => {
       if (!data || !data.room) return;
+      if (socket.data.room !== data.room) return;
+      if (!checkRateLimit(socket.id, "send_message")) return;
       socket.to(data.room).emit("receive_message", data);
+    });
+
+    socket.on("leave_room", (data) => {
+      if (!data || !data.room) return;
+      if (socket.data.room !== data.room) return;
+      socket.leave(data.room);
+      const remaining = io.sockets.adapter.rooms.get(data.room)?.size || 0;
+      roomUserCounts[data.room] = remaining;
+      console.log(`[leave_room] ${socket.data.userName || "?"} odayı terk etti. Oda: ${data.room}, Kalan: ${remaining}`);
+      const users = getRoomUsers(data.room);
+      socket.to(data.room).emit("user_left", {
+        message: `${socket.data.userName || "Karşı taraf"} odadan ayrıldı.`,
+        userCount: remaining,
+        users: users
+      });
+      if (remaining === 0) {
+        startRoomTimer(data.room);
+      }
+      socket.data.room = null;
+      socket.data.isAdmin = false;
     });
 
     socket.on("disconnect", () => {
