@@ -945,7 +945,7 @@ export default function App() {
     spawnEmoji(emoji);
   };
 
-  const voiceReady = peerCount > 1 && Boolean(videoSrc);
+  const voiceReady = peerCount > 1;
 
   const getSyncStatusColor = () => {
     if (peerTimeDiff === null) return "ok";
