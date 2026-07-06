@@ -213,8 +213,9 @@ function createServer() {
 
     socket.on("webrtc_signal", (data) => {
       if (!data || !data.room) return;
-      // data: { room, signal, sender }
-      // Broadcast signal to everyone else in the room
+      const signalType = data.signal?.type || "unknown";
+      const userName = socket.data.userName || "?";
+      console.log(`[webrtc] ${userName} sinyal gönderdi: ${signalType} (Oda: ${data.room})`);
       socket.to(data.room).emit("webrtc_signal_received", data);
     });
 
