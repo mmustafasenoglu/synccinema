@@ -76,6 +76,14 @@ const MicIcon = () => (
   </svg>
 );
 
+// Camera icon for video chat
+const CameraIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M23 7l-7 5 7 5V7z"/>
+    <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+  </svg>
+);
+
 // Send icon — birebir mockup
 const SendIcon = () => (
   <svg viewBox="0 0 24 24" fill="currentColor">
@@ -228,8 +236,10 @@ export default function App() {
 
   // --- WebRTC ---
   const [micEnabled, setMicEnabled] = useState(false);
+  const [cameraEnabled, setCameraEnabled] = useState(false);
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [voiceAutoConfig, setVoiceAutoConfig] = useState({ autoVoice: false, voiceMode: "waiting" });
+  const [remoteVideoStream, setRemoteVideoStream] = useState(null);
 
   // --- Mobile Chat ---
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
@@ -249,6 +259,7 @@ export default function App() {
   const peerRef = useRef(null);
   const streamRef = useRef(null);
   const remoteAudioRef = useRef(null);
+  const remoteVideoRef = useRef(null);
   const voiceAutoStartedRef = useRef(false);
 
   // ---------------------------------------------------------------
@@ -535,13 +546,16 @@ export default function App() {
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
     setVoiceConnected(false);
     setMicEnabled(false);
+    setCameraEnabled(false);
+    setRemoteVideoStream(null);
   };
 
-  const initWebRTC = (initiator, initialSignal = null) => {
-    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+  const initWebRTC = (initiator, initialSignal = null, sendVideo = false) => {
+    navigator.mediaDevices.getUserMedia({ audio: true, video: sendVideo })
       .then((stream) => {
         streamRef.current = stream;
         setMicEnabled(true);
+        if (sendVideo) setCameraEnabled(true);
         const peer = new Peer({ initiator, trickle: true, stream });
         peer.on("signal", (data) => {
           socketRef.current.emit("webrtc_signal", { room: roomName.trim(), signal: data });
@@ -552,12 +566,17 @@ export default function App() {
             remoteAudioRef.current.srcObject = remoteStream;
             remoteAudioRef.current.play().catch(() => {});
           }
+          // Check if remote stream has video tracks
+          const hasVideo = remoteStream.getVideoTracks().length > 0;
+          if (hasVideo) {
+            setRemoteVideoStream(remoteStream);
+          }
         });
         peer.on("error", () => cleanupWebRTC());
         if (initialSignal) peer.signal(initialSignal);
         peerRef.current = peer;
       })
-      .catch(() => setSystemNotice("Mikrofon erişimine izin vermeniz gerekiyor."));
+      .catch(() => setSystemNotice("Mikrofon/kamera erişimine izin vermeniz gerekiyor."));
   };
 
   const toggleMic = () => {
@@ -572,6 +591,38 @@ export default function App() {
         setMicEnabled(true);
       } else if (peerCount > 1) {
         initWebRTC(true);
+      } else {
+        setSystemNotice("Odadaki diğer kişi bekleniyor...");
+      }
+    }
+  };
+
+  const toggleCamera = () => {
+    if (cameraEnabled) {
+      // Turn off camera
+      if (streamRef.current) {
+        streamRef.current.getVideoTracks().forEach(t => { t.enabled = false; });
+      }
+      setCameraEnabled(false);
+    } else {
+      // Turn on camera - need to renegotiate with video
+      if (streamRef.current) {
+        // Already have a stream, just add video track
+        navigator.mediaDevices.getUserMedia({ video: true })
+          .then((videoStream) => {
+            const videoTrack = videoStream.getVideoTracks()[0];
+            if (videoTrack) {
+              streamRef.current.addTrack(videoTrack);
+              // Add track to peer connection
+              if (peerRef.current && peerRef.current._pc) {
+                peerRef.current._pc.addTrack(videoTrack, streamRef.current);
+              }
+              setCameraEnabled(true);
+            }
+          })
+          .catch(() => setSystemNotice("Kamera erişimine izin vermeniz gerekiyor."));
+      } else if (peerCount > 1) {
+        initWebRTC(true, null, true);
       } else {
         setSystemNotice("Odadaki diğer kişi bekleniyor...");
       }
@@ -1024,6 +1075,16 @@ export default function App() {
             {micEnabled ? "Sesi Kapat" : "Sesi Aç"}
           </button>
 
+          <button
+            className={`btn-ghost mic-btn ${cameraEnabled ? "active" : ""}`}
+            onClick={toggleCamera}
+            disabled={!voiceReady}
+            title={!voiceReady ? "Görüntülü sohbet için önce videoyu aç ve karşı tarafı bekle" : ""}
+          >
+            <CameraIcon />
+            {cameraEnabled ? "Kamerayı Kapat" : "Kamerayı Aç"}
+          </button>
+
           <button className="btn-toggle topbar-theme-toggle" onClick={toggleFullscreen} title="Tam Ekran">
             <FullscreenIcon isFullscreen={isFullscreen} />
           </button>
@@ -1194,6 +1255,35 @@ export default function App() {
             <h3 className="chat-header-title">SOHBET</h3>
             <span className="chat-online-badge">{peerCount} çevrimiçi</span>
           </div>
+
+          {/* Video Chat Area */}
+          {peerCount > 1 && (
+            <div className="video-chat-area">
+              <div className="video-chat-circles">
+                {/* Remote video */}
+                <div className={`video-circle remote ${remoteVideoStream ? "has-stream" : ""}`}>
+                  {remoteVideoStream ? (
+                    <video
+                      ref={(el) => {
+                        if (el) {
+                          el.srcObject = remoteVideoStream;
+                          el.play().catch(() => {});
+                        }
+                      }}
+                      autoPlay
+                      playsInline
+                      muted={false}
+                    />
+                  ) : (
+                    <div className="video-circle-placeholder">
+                      <span className="video-circle-initial">{peerName ? peerName[0].toUpperCase() : "?"}</span>
+                    </div>
+                  )}
+                  <span className="video-circle-label">{peerName || "Karşı Taraf"}</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Reactions */}
           {videoSrc && (

@@ -791,6 +791,83 @@ video::-webkit-media-text-track-container {
 }
 
 /* =============================================
+   VIDEO CHAT AREA (circular video under chat header)
+   ============================================= */
+.video-chat-area {
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: center;
+}
+
+.video-chat-circles {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-circle {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 3px solid var(--line);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.video-circle.has-stream {
+  border-color: var(--pink-deep);
+  box-shadow: 0 0 20px var(--pink-dim);
+}
+
+.video-circle video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.video-circle-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--pink-dim), var(--panel-2));
+}
+
+.video-circle-initial {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 36px;
+  color: var(--pink-deep);
+  font-weight: 400;
+}
+
+.video-circle-label {
+  position: absolute;
+  bottom: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* Pulse animation when video is active */
+@keyframes video-pulse {
+  0% { box-shadow: 0 0 0 0 var(--pink-dim); }
+  70% { box-shadow: 0 0 0 10px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.video-circle.has-stream {
+  animation: video-pulse 2s infinite;
+}
+
+/* =============================================
    SIDEBAR (SOHBET)
    ============================================= */
 .chat-pane {
@@ -1364,6 +1441,20 @@ body.dark .large-copy-btn { color: #1A0410; }
   .custom-subtitle-overlay {
     max-width: 92%;
     font-size: calc(var(--sub-font-size, 18px) - 2px);
+  }
+
+  /* Mobile video chat */
+  .video-chat-area {
+    padding: 12px;
+  }
+
+  .video-circle {
+    width: 80px;
+    height: 80px;
+  }
+
+  .video-circle-initial {
+    font-size: 28px;
   }
 }
 
