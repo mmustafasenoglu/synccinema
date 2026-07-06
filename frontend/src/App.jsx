@@ -467,12 +467,15 @@ export default function App() {
   useEffect(() => {
     if (!videoSrc || !videoRef.current) return;
     const video = videoRef.current;
+    let setupDone = false;
 
     const setupTracks = () => {
       if (!video.textTracks) return;
+      let found = false;
       for (let i = 0; i < video.textTracks.length; i++) {
         const t = video.textTracks[i];
         if (t.kind === "subtitles" || t.kind === "captions" || t.kind === "metadata") {
+          found = true;
           t.mode = "hidden";
           t.oncuechange = () => {
             if (t.activeCues && t.activeCues.length > 0) {
@@ -487,14 +490,28 @@ export default function App() {
           };
         }
       }
+      if (found) setupDone = true;
     };
 
     video.addEventListener("loadedmetadata", setupTracks);
     video.addEventListener("loadeddata", setupTracks);
 
+    const retryInterval = setInterval(() => {
+      if (!setupDone && video.textTracks && video.textTracks.length > 0) {
+        setupTracks();
+      }
+    }, 500);
+
+    const retryTimeout = setTimeout(() => {
+      clearInterval(retryInterval);
+      setupTracks();
+    }, 5000);
+
     return () => {
       video.removeEventListener("loadedmetadata", setupTracks);
       video.removeEventListener("loadeddata", setupTracks);
+      clearInterval(retryInterval);
+      clearTimeout(retryTimeout);
       if (video.textTracks) {
         for (let i = 0; i < video.textTracks.length; i++) {
           video.textTracks[i].oncuechange = null;
@@ -544,9 +561,21 @@ export default function App() {
   };
 
   const toggleMic = () => {
-    if (micEnabled) cleanupWebRTC();
-    else if (peerCount > 1) initWebRTC(true);
-    else setSystemNotice("Odadaki diğer kişi bekleniyor...");
+    if (micEnabled) {
+      if (streamRef.current) {
+        streamRef.current.getAudioTracks().forEach(t => { t.enabled = false; });
+      }
+      setMicEnabled(false);
+    } else {
+      if (streamRef.current) {
+        streamRef.current.getAudioTracks().forEach(t => { t.enabled = true; });
+        setMicEnabled(true);
+      } else if (peerCount > 1) {
+        initWebRTC(true);
+      } else {
+        setSystemNotice("Odadaki diğer kişi bekleniyor...");
+      }
+    }
   };
 
   // ---------------------------------------------------------------
@@ -1101,7 +1130,7 @@ export default function App() {
                 <div className="admin-only-banner">⚠️ Sadece oda sahibi videoyu kontrol edebilir</div>
               )}
 
-              {subtitleSrc && (
+              {(subtitleSrc || subtitleTracks.length > 0) && (
                 <div className="subtitle-indicator">
                   💬 Altyazı
                   <button className="subtitle-settings-btn" onClick={() => setShowSubtitleSettings(!showSubtitleSettings)}>⚙️</button>
