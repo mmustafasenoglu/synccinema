@@ -350,18 +350,32 @@ export default function App() {
     });
 
     socket.on("webrtc_signal_received", (data) => {
-      console.log("[WebRTC] Karşı taraftan sinyal alındı:", data.signal?.type);
-      // Karşı taraf peer'ı yeniden oluşturduysa (kamera açtıysa) offer gelir
-      // Biz de mevcut peer'ı yok edip yeniden oluşturmalıyız
-      if (data.signal?.type === "offer" && peerRef.current) {
-        console.log("[WebRTC] Karşı taraf yeniden bağlanıyor (offer), mevcut peer kapatılıyor");
-        peerRef.current.destroy();
-        peerRef.current = null;
+      if (!data.signal) return;
+      const sigType = data.signal.type;
+      console.log("[WebRTC] Karşı taraftan sinyal alındı:", sigType);
+      const peer = peerRef.current;
+
+      if (sigType === "offer") {
+        if (peer) {
+          try { peer.destroy(); } catch (_) {}
+          peerRef.current = null;
+          initWebRTCRef.current = false;
+        }
         initWebRTC(false, data.signal);
-      } else if (peerRef.current) {
-        peerRef.current.signal(data.signal);
-      } else {
-        initWebRTC(false, data.signal);
+      } else if (sigType === "answer") {
+        if (!peer) {
+          console.log("[WebRTC] Answer geldi ama peer yok, yok sayılıyor");
+          return;
+        }
+        try {
+          peer.signal(data.signal);
+        } catch (err) {
+          console.warn("[WebRTC] Answer işlenemedii:", err.message);
+        }
+      } else if (sigType === "candidate") {
+        if (peer && !peer.destroyed) {
+          try { peer.signal(data.signal); } catch (_) {}
+        }
       }
     });
 
@@ -476,7 +490,12 @@ export default function App() {
   }, [isAuthenticated, joined, roomName, myName]);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = chatEndRef.current?.parentElement;
+    if (!el) return;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    if (isNearBottom) {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages, peerIsTyping]);
 
   useEffect(() => {
@@ -523,7 +542,7 @@ export default function App() {
             if (t.activeCues && t.activeCues.length > 0) {
               const texts = [];
               for (let j = 0; j < t.activeCues.length; j++) {
-                texts.push(t.activeCues[j].text);
+                texts.push(t.activeCues[j].text.replace(/<[^>]+>/g, ""));
               }
               setActiveCueText(texts.join("\n"));
             } else {
@@ -571,8 +590,11 @@ export default function App() {
   // ---------------------------------------------------------------
   // WEBRTC
   // ---------------------------------------------------------------
+  const iceRetryTimeoutRef = useRef(null);
+
   const cleanupWebRTC = () => {
     console.log("[WebRTC] Temizleniyor...");
+    if (iceRetryTimeoutRef.current) { clearTimeout(iceRetryTimeoutRef.current); iceRetryTimeoutRef.current = null; }
     if (peerRef.current) { peerRef.current.destroy(); peerRef.current = null; }
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
     setVoiceConnected(false);
@@ -582,6 +604,14 @@ export default function App() {
     console.log("[WebRTC] Temizlendi.");
   };
 
+  const iceServers = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:stun3.l.google.com:19302" },
+    { urls: "stun:stun4.l.google.com:19302" },
+  ];
+
   const initWebRTC = (initiator, initialSignal = null, sendVideo = false) => {
     if (initWebRTCRef.current) {
       console.log("[WebRTC] Zaten başlatılıyor, atlanıyor...");
@@ -589,47 +619,76 @@ export default function App() {
     }
     initWebRTCRef.current = true;
     console.log(`[WebRTC] Başlatılıyor... initiator: ${initiator}, video: ${sendVideo}`);
-    navigator.mediaDevices.getUserMedia({ audio: true, video: sendVideo })
-      .then((stream) => {
-        console.log(`[WebRTC] Stream alındı. Audio: ${stream.getAudioTracks().length}, Video: ${stream.getVideoTracks().length}`);
-        streamRef.current = stream;
-        setMicEnabled(true);
-        if (sendVideo) setCameraEnabled(true);
-        const peer = new Peer({ initiator, trickle: true, stream });
-        peer.on("signal", (data) => {
-          console.log(`[WebRTC] Peer sinyal gönderdi: ${data.type}`);
-          socketRef.current.emit("webrtc_signal", { room: roomNameRef.current.trim(), signal: data });
-        });
-        peer.on("connect", () => {
-          console.log("[WebRTC] Peer bağlandı!");
-          setVoiceConnected(true);
-          initWebRTCRef.current = false;
-        });
-        peer.on("stream", (remoteStream) => {
-          console.log(`[WebRTC] Remote stream alındı. Audio: ${remoteStream.getAudioTracks().length}, Video: ${remoteStream.getVideoTracks().length}`);
-          if (remoteAudioRef.current) {
-            remoteAudioRef.current.srcObject = remoteStream;
-            remoteAudioRef.current.play().catch(() => {});
-          }
-          const hasVideo = remoteStream.getVideoTracks().length > 0;
-          if (hasVideo) {
-            console.log("[WebRTC] Remote video akışı var, gösteriliyor...");
-            setRemoteVideoStream(remoteStream);
-          }
-        });
-        peer.on("error", (err) => {
-          console.error("[WebRTC] Hata:", err.message);
-          initWebRTCRef.current = false;
-          cleanupWebRTC();
-        });
-        if (initialSignal) peer.signal(initialSignal);
-        peerRef.current = peer;
-      })
-      .catch((err) => {
-        console.error("[WebRTC] getUserMedia hatası:", err.message);
-        initWebRTCRef.current = false;
-        setSystemNotice("Mikrofon/kamera erişimine izin vermeniz gerekiyor.");
+
+    const createPeer = (stream) => {
+      const peer = new Peer({
+        initiator,
+        trickle: false,
+        stream,
+        config: { iceServers },
       });
+      peer.on("signal", (data) => {
+        console.log(`[WebRTC] Peer sinyal gönderdi: ${data.type}`);
+        socketRef.current.emit("webrtc_signal", { room: roomNameRef.current.trim(), signal: data });
+      });
+      peer.on("connect", () => {
+        console.log("[WebRTC] Peer bağlandı!");
+        setVoiceConnected(true);
+        initWebRTCRef.current = false;
+        if (iceRetryTimeoutRef.current) { clearTimeout(iceRetryTimeoutRef.current); iceRetryTimeoutRef.current = null; }
+      });
+      peer.on("stream", (remoteStream) => {
+        console.log(`[WebRTC] Remote stream alındı. Audio: ${remoteStream.getAudioTracks().length}, Video: ${remoteStream.getVideoTracks().length}`);
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = remoteStream;
+          remoteAudioRef.current.play().catch(() => {});
+        }
+        const hasVideo = remoteStream.getVideoTracks().length > 0;
+        if (hasVideo) {
+          console.log("[WebRTC] Remote video akışı var, gösteriliyor...");
+          setRemoteVideoStream(remoteStream);
+        }
+      });
+      peer.on("error", (err) => {
+        console.error("[WebRTC] Hata:", err.message);
+        initWebRTCRef.current = false;
+      });
+      peer.on("close", () => {
+        console.log("[WebRTC] Peer bağlantısı kapandı");
+        initWebRTCRef.current = false;
+      });
+      if (initialSignal) peer.signal(initialSignal);
+      peerRef.current = peer;
+    };
+
+    if (streamRef.current) {
+      const oldTracks = streamRef.current.getTracks();
+      if (sendVideo && !streamRef.current.getVideoTracks().length) {
+        navigator.mediaDevices.getUserMedia({ video: true })
+          .then((videoStream) => {
+            const videoTrack = videoStream.getVideoTracks()[0];
+            if (videoTrack) streamRef.current.addTrack(videoTrack);
+            createPeer(streamRef.current);
+          })
+          .catch(() => createPeer(streamRef.current));
+      } else {
+        createPeer(streamRef.current);
+      }
+    } else {
+      navigator.mediaDevices.getUserMedia({ audio: true, video: sendVideo })
+        .then((stream) => {
+          console.log(`[WebRTC] Stream alındı. Audio: ${stream.getAudioTracks().length}, Video: ${stream.getVideoTracks().length}`);
+          streamRef.current = stream;
+          setMicEnabled(true);
+          if (sendVideo) setCameraEnabled(true);
+          createPeer(stream);
+        })
+        .catch((err) => {
+          console.error("[WebRTC] getUserMedia hatası:", err.message);
+          initWebRTCRef.current = false;
+          setSystemNotice("Mikrofon/kamera erişimine izin vermeniz gerekiyor.");
+        });
+    }
   };
 
   const toggleMic = () => {
@@ -660,51 +719,24 @@ export default function App() {
       }
       setCameraEnabled(false);
     } else {
-      console.log("[WebRTC] Kamera açılıyor - yeniden bağlantı kuruluyor...");
+      console.log("[WebRTC] Kamera açılıyor...");
       navigator.mediaDevices.getUserMedia({ video: true })
         .then((videoStream) => {
           const videoTrack = videoStream.getVideoTracks()[0];
           if (!videoTrack) return;
-          console.log("[WebRTC] Kamera track alındı");
           setCameraEnabled(true);
 
-          // Mevcut stream'e video track'ini ekle
           if (streamRef.current) {
             streamRef.current.addTrack(videoTrack);
           }
 
-          // Peer'ı yok edip video ile yeniden kur
-          const currentInitiator = peerRef.current ? peerRef.current.initiator : true;
+          initWebRTCRef.current = false;
           if (peerRef.current) {
             peerRef.current.destroy();
             peerRef.current = null;
           }
-
-          const stream = streamRef.current;
-          const peer = new Peer({ initiator: true, trickle: true, stream });
-          peer.on("signal", (data) => {
-            console.log(`[WebRTC] Peer sinyal gönderdi (yeniden): ${data.type}`);
-            socketRef.current.emit("webrtc_signal", { room: roomName.trim(), signal: data });
-          });
-          peer.on("connect", () => {
-            console.log("[WebRTC] Peer yeniden bağlandı!");
-            setVoiceConnected(true);
-          });
-          peer.on("stream", (remoteStream) => {
-            console.log(`[WebRTC] Remote stream (yeniden). Audio: ${remoteStream.getAudioTracks().length}, Video: ${remoteStream.getVideoTracks().length}`);
-            if (remoteAudioRef.current) {
-              remoteAudioRef.current.srcObject = remoteStream;
-              remoteAudioRef.current.play().catch(() => {});
-            }
-            if (remoteStream.getVideoTracks().length > 0) {
-              console.log("[WebRTC] Remote video akışı geldi!");
-              setRemoteVideoStream(remoteStream);
-            }
-          });
-          peer.on("error", (err) => {
-            console.error("[WebRTC] Hata:", err.message);
-          });
-          peerRef.current = peer;
+          const currentInitiator = voiceAutoConfig.voiceMode === "initiator";
+          initWebRTC(currentInitiator, null, true);
         })
         .catch((err) => {
           console.error("[WebRTC] Kamera hatası:", err.message);
