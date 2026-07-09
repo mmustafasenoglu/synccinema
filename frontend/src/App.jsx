@@ -599,6 +599,7 @@ export default function App() {
     if (iceRetryTimeoutRef.current) { clearTimeout(iceRetryTimeoutRef.current); iceRetryTimeoutRef.current = null; }
     if (peerRef.current) { peerRef.current.destroy(); peerRef.current = null; }
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+    initWebRTCRef.current = false;
     setVoiceConnected(false);
     setMicEnabled(false);
     setCameraEnabled(false);
@@ -663,6 +664,16 @@ export default function App() {
         if (hasVideo) {
           console.log("[WebRTC] Remote video akışı var, gösteriliyor...");
           setRemoteVideoStream(remoteStream);
+          remoteStream.getVideoTracks().forEach(track => {
+            track.onmute = () => {
+              console.log("[WebRTC] Remote video track mute edildi");
+              setRemoteVideoStream(null);
+            };
+            track.onunmute = () => {
+              console.log("[WebRTC] Remote video track unmute edildi");
+              setRemoteVideoStream(remoteStream);
+            };
+          });
         }
       });
       peer.on("error", (err) => {
@@ -719,9 +730,9 @@ export default function App() {
       if (streamRef.current) {
         streamRef.current.getAudioTracks().forEach(t => { t.enabled = true; });
         setMicEnabled(true);
-      } else if (peerCount > 1) {
+      } else if (peerCount > 1 && !initWebRTCRef.current) {
         initWebRTC(true);
-      } else {
+      } else if (peerCount <= 1) {
         setSystemNotice("Odadaki diğer kişi bekleniyor...");
       }
     }
@@ -736,6 +747,25 @@ export default function App() {
       setCameraEnabled(false);
     } else {
       console.log("[WebRTC] Kamera açılıyor...");
+      if (!streamRef.current) {
+        navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+          .then((newStream) => {
+            console.log("[WebRTC] Yeni stream alındı (ses+kamera)");
+            streamRef.current = newStream;
+            setMicEnabled(true);
+            setCameraEnabled(true);
+            if (peerCount > 1) {
+              initWebRTCRef.current = false;
+              const currentInitiator = voiceAutoConfig.voiceMode === "initiator";
+              initWebRTC(currentInitiator, null, true);
+            }
+          })
+          .catch((err) => {
+            console.error("[WebRTC] Ses+kamera hatası:", err.message);
+            setSystemNotice("Mikrofon/kamera erişimine izin vermeniz gerekiyor.");
+          });
+        return;
+      }
       navigator.mediaDevices.getUserMedia({ video: true })
         .then((videoStream) => {
           const videoTrack = videoStream.getVideoTracks()[0];
@@ -755,8 +785,6 @@ export default function App() {
           if (peerRef.current) {
             const oldPeer = peerRef.current;
             peerRef.current = null;
-            // close event'ini dinle, gelince yeni peer başlat
-            // ama close çok geç gelirse (veya hiç gelmezse) 200ms sonra zorla başlat
             let launched = false;
             const safeLaunch = () => {
               if (launched) return;
