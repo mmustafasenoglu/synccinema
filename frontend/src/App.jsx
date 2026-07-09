@@ -268,6 +268,7 @@ export default function App() {
   const initWebRTCRef = useRef(false);
   const blobUrlsRef = useRef([]);
   const emojiTimeoutRefs = useRef([]);
+  const voiceAutoConfigRef = useRef(voiceAutoConfig);
 
   // ---------------------------------------------------------------
   // SOCKET
@@ -483,6 +484,7 @@ export default function App() {
   useEffect(() => { myNameRef.current = myName; }, [myName]);
   useEffect(() => { mobileChatOpenRef.current = mobileChatOpen; }, [mobileChatOpen]);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
+  useEffect(() => { voiceAutoConfigRef.current = voiceAutoConfig; }, [voiceAutoConfig]);
 
   useEffect(() => {
     if (isAuthenticated && joined && roomName && myName) saveSession({ roomName, myName });
@@ -537,7 +539,6 @@ export default function App() {
         if (trackedIds.has(t)) continue;
         if (t.kind === "subtitles" || t.kind === "captions" || t.kind === "metadata") {
           trackedIds.add(t);
-          t.mode = "showing";
           t.oncuechange = () => {
             if (t.activeCues && t.activeCues.length > 0) {
               const texts = [];
@@ -582,9 +583,10 @@ export default function App() {
 
   useEffect(() => {
     if (!joined || !videoSrc || micEnabled) return;
-    if (!voiceAutoConfig.autoVoice || voiceAutoStartedRef.current) return;
+    const cfg = voiceAutoConfigRef.current;
+    if (!cfg.autoVoice || voiceAutoStartedRef.current) return;
     voiceAutoStartedRef.current = true;
-    initWebRTC(voiceAutoConfig.voiceMode === "initiator");
+    initWebRTC(cfg.voiceMode === "initiator");
   }, [joined, videoSrc, micEnabled, voiceAutoConfig]);
 
   // ---------------------------------------------------------------
@@ -603,6 +605,20 @@ export default function App() {
     setRemoteVideoStream(null);
     console.log("[WebRTC] Temizlendi.");
   };
+
+  // remoteVideoStream değişince ref'e srcObject ata (inline callback yerine)
+  useEffect(() => {
+    const el = remoteVideoRef.current;
+    if (!el) return;
+    if (remoteVideoStream) {
+      el.srcObject = remoteVideoStream;
+      el.play().catch((err) => {
+        console.warn("[WebRTC] Remote video autoplay engellendi:", err.message);
+      });
+    } else {
+      el.srcObject = null;
+    }
+  }, [remoteVideoStream]);
 
   const iceServers = [
     { urls: "stun:stun.l.google.com:19302" },
@@ -730,13 +746,29 @@ export default function App() {
             streamRef.current.addTrack(videoTrack);
           }
 
-          initWebRTCRef.current = false;
+          const launchNewPeer = () => {
+            initWebRTCRef.current = false;
+            const currentInitiator = voiceAutoConfig.voiceMode === "initiator";
+            initWebRTC(currentInitiator, null, true);
+          };
+
           if (peerRef.current) {
-            peerRef.current.destroy();
+            const oldPeer = peerRef.current;
             peerRef.current = null;
+            // close event'ini dinle, gelince yeni peer başlat
+            // ama close çok geç gelirse (veya hiç gelmezse) 200ms sonra zorla başlat
+            let launched = false;
+            const safeLaunch = () => {
+              if (launched) return;
+              launched = true;
+              launchNewPeer();
+            };
+            oldPeer.once("close", safeLaunch);
+            setTimeout(safeLaunch, 200);
+            try { oldPeer.destroy(); } catch (_) {}
+          } else {
+            launchNewPeer();
           }
-          const currentInitiator = voiceAutoConfig.voiceMode === "initiator";
-          initWebRTC(currentInitiator, null, true);
         })
         .catch((err) => {
           console.error("[WebRTC] Kamera hatası:", err.message);
@@ -744,6 +776,7 @@ export default function App() {
         });
     }
   };
+
 
   // ---------------------------------------------------------------
   // HELPERS
@@ -1006,7 +1039,7 @@ export default function App() {
     typingTimerRef.current = setTimeout(() => {
       if (socketRef.current) socketRef.current.emit("typing_stop", { room: roomName.trim() });
       typingTimerRef.current = null;
-    }, 300);
+    }, 1500);
   };
 
   // ---------------------------------------------------------------
@@ -1415,12 +1448,7 @@ export default function App() {
                 <div className={`video-circle remote ${remoteVideoStream ? "has-stream" : ""}`}>
                   {remoteVideoStream ? (
                     <video
-                      ref={(el) => {
-                        if (el) {
-                          el.srcObject = remoteVideoStream;
-                          el.play().catch(() => {});
-                        }
-                      }}
+                      ref={remoteVideoRef}
                       autoPlay
                       playsInline
                       muted={false}

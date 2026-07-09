@@ -132,15 +132,16 @@ function createServer() {
       roomUserCounts[roomName] = newCount;
       const isSecondParticipant = newCount === 2;
 
-      // Admin kontrolü - ilk giren kişi admin, tekrar bağlanırsa da admin kalır
+      // Admin kontrolü - sadece socket.id üzerinden (userName karşılaştırması güvensiz)
       if (!roomAdmins[roomName]) {
+        // Odanın ilk adminini ata
         socket.data.isAdmin = true;
         roomAdmins[roomName] = socket.id;
         console.log(`[join_room] Admin belirlendi: ${userName} (${socket.id})`);
-      } else if (roomAdmins[roomName] === socket.id || roomAdmins[roomName] === userName) {
+      } else if (roomAdmins[roomName] === socket.id) {
+        // Aynı socket geri döndü (reconnect)
         socket.data.isAdmin = true;
-        roomAdmins[roomName] = socket.id;
-        console.log(`[join_room] Admin geri döndü: ${userName}`);
+        console.log(`[join_room] Admin geri döndü (aynı socket): ${userName}`);
       } else {
         socket.data.isAdmin = false;
       }
