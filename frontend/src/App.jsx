@@ -360,7 +360,15 @@ export default function App() {
     socket.on("webrtc_signal_received", (data) => {
       if (!data.signal) return;
       const sigType = data.signal.type;
-      console.log(`[WebRTC] Karşı taraftan sinyal alındı: ${sigType}, mevcut peer: ${peerRef.current ? "var" : "yok"}`);
+      console.log(`[WebRTC] Karşı taraftan sinyal alındı: ${sigType || (data.signal.candidate ? "candidate" : "unknown")}, mevcut peer: ${peerRef.current ? "var" : "yok"}`);
+
+      if (sigType === "reset") {
+        console.log("[WebRTC] Karşı taraf reset istedi, peer sıfırlanıyor...");
+        destroyPeer();
+        const currentInitiator = voiceAutoConfigRef.current.voiceMode === "initiator";
+        initWebRTC(currentInitiator, null, cameraEnabledRef.current);
+        return;
+      }
 
       if (sigType === "offer") {
         console.log("[WebRTC] Offer alındı, yeniden bağlanılıyor...");
@@ -378,7 +386,7 @@ export default function App() {
         } catch (err) {
           console.warn("[WebRTC] Answer işlenemedi:", err.message);
         }
-      } else if (sigType === "candidate") {
+      } else if (data.signal.candidate) {
         const peer = peerRef.current;
         if (peer && !peer.destroyed) {
           try { peer.signal(data.signal); } catch (_) {}
@@ -690,7 +698,7 @@ export default function App() {
       }
       const peer = new Peer({
         initiator,
-        trickle: false,
+        trickle: true,
         stream,
         config: { iceServers },
       });
