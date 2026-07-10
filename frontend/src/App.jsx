@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { io } from "socket.io-client";
 import Peer from "simple-peer";
 import MP4Box from "mp4box";
+import { extractEmbeddedSubtitles, parseVTT, getActiveCueText, loadFFmpeg } from "./subtitleExtractor";
 import "./index.css";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:3001";
@@ -223,6 +224,10 @@ export default function App() {
   const [subtitleTracks, setSubtitleTracks] = useState([]);
   const [showSubtitleSettings, setShowSubtitleSettings] = useState(false);
   const [activeCueText, setActiveCueText] = useState("");
+  const [subtitleExtracting, setSubtitleExtracting] = useState(false);
+  const [embeddedCues, setEmbeddedCues] = useState([]);
+  const [activeEmbeddedTrack, setActiveEmbeddedTrack] = useState(null);
+  const [showTrackSelector, setShowTrackSelector] = useState(false);
 
   useEffect(() => {
     localStorage.setItem("synccinema_subtitle_settings", JSON.stringify(subtitleSettings));
@@ -266,14 +271,11 @@ export default function App() {
   const mobileChatOpenRef = useRef(mobileChatOpen);
   const isAdminRef = useRef(isAdmin);
   const initWebRTCRef = useRef(false);
+  const initWebRTCGenerationRef = useRef(0);
+  const cameraTogglingRef = useRef(false);
   const blobUrlsRef = useRef([]);
   const emojiTimeoutRefs = useRef([]);
   const voiceAutoConfigRef = useRef(voiceAutoConfig);
-  const cameraEnabledRef = useRef(cameraEnabled);
-  const micEnabledRef = useRef(micEnabled);
-
-  useEffect(() => { cameraEnabledRef.current = cameraEnabled; }, [cameraEnabled]);
-  useEffect(() => { micEnabledRef.current = micEnabled; }, [micEnabled]);
 
   // ---------------------------------------------------------------
   // SOCKET
@@ -321,7 +323,6 @@ export default function App() {
       updatePeerName(data.users);
       setIsAdmin(data.isAdmin || false);
       setVoiceAutoConfig({ autoVoice: Boolean(data.autoVoice), voiceMode: data.voiceMode || "waiting" });
-      socket.emit("request_sync", { room: data.room });
     });
 
     socket.on("user_joined", (data) => {
@@ -331,19 +332,10 @@ export default function App() {
       setVoiceAutoConfig({ autoVoice: Boolean(data.autoVoice), voiceMode: data.voiceMode || "waiting" });
     });
 
-    socket.on("admin_changed", (data) => {
-      setIsAdmin(myNameRef.current === data.adminName);
-    });
-
     socket.on("user_left", (data) => {
       setPeerCount(data.userCount || 1);
       setSystemNotice(data.message);
       updatePeerName(data.users);
-      if (data.adminName) {
-        setIsAdmin(myNameRef.current === data.adminName);
-      } else if (data.userCount === 1) {
-        setIsAdmin(true);
-      }
       const video = videoRef.current;
       if (video && !video.paused) {
         isIncomingSignal.current = true;
@@ -368,39 +360,26 @@ export default function App() {
     socket.on("webrtc_signal_received", (data) => {
       if (!data.signal) return;
       const sigType = data.signal.type;
-      console.log("[WebRTC] Karşı taraftan sinyal alındı:", sigType);
-      const peer = peerRef.current;
-
-      if (sigType === "reset") {
-        console.log("[WebRTC] Karşı taraf reset istedi, peer sıfırlanıyor...");
-        if (peer) {
-          try { peer.destroy(); } catch (_) {}
-          peerRef.current = null;
-        }
-        initWebRTCRef.current = false;
-        const currentInitiator = voiceAutoConfigRef.current.voiceMode === "initiator";
-        initWebRTC(currentInitiator, null, cameraEnabledRef.current);
-        return;
-      }
+      console.log(`[WebRTC] Karşı taraftan sinyal alındı: ${sigType}, mevcut peer: ${peerRef.current ? "var" : "yok"}`);
 
       if (sigType === "offer") {
-        if (peer) {
-          try { peer.destroy(); } catch (_) {}
-          peerRef.current = null;
-          initWebRTCRef.current = false;
-        }
+        console.log("[WebRTC] Offer alındı, yeniden bağlanılıyor...");
+        destroyPeer();
         initWebRTC(false, data.signal);
       } else if (sigType === "answer") {
+        const peer = peerRef.current;
         if (!peer) {
           console.log("[WebRTC] Answer geldi ama peer yok, yok sayılıyor");
           return;
         }
         try {
+          console.log("[WebRTC] Answer işleniyor...");
           peer.signal(data.signal);
         } catch (err) {
-          console.warn("[WebRTC] Answer işlenemedii:", err.message);
+          console.warn("[WebRTC] Answer işlenemedi:", err.message);
         }
       } else if (sigType === "candidate") {
+        const peer = peerRef.current;
         if (peer && !peer.destroyed) {
           try { peer.signal(data.signal); } catch (_) {}
         }
@@ -464,7 +443,7 @@ export default function App() {
 
     socket.on("sync_response", (data) => {
       const video = videoRef.current;
-      if (!video || !data || !video.src) return;
+      if (!video || !data) return;
       const latency = (Date.now() - (data.sentAt || Date.now())) / 1000;
       let t = data.currentTime + latency;
       if (video.duration && t > video.duration) t = video.duration;
@@ -543,7 +522,7 @@ export default function App() {
     if (!joined || !videoSrc) return;
     const interval = setInterval(() => {
       const video = videoRef.current;
-      if (video && !video.paused && socketRef.current && isAdminRef.current) {
+      if (video && !video.paused && socketRef.current) {
         socketRef.current.emit("playback_sync", {
           room: roomName.trim(),
           currentTime: video.currentTime,
@@ -608,6 +587,26 @@ export default function App() {
     };
   }, [videoSrc, subtitleSrc, subtitleTracks.length]);
 
+  // Timeupdate tabanlı cue tracking (ffmpeg.wasm parsed cues için)
+  useEffect(() => {
+    if (!videoSrc || !videoRef.current || embeddedCues.length === 0) return;
+    const video = videoRef.current;
+
+    const handleTimeUpdate = () => {
+      const text = getActiveCueText(embeddedCues, video.currentTime);
+      if (text) {
+        setActiveCueText(text);
+      } else {
+        setActiveCueText("");
+      }
+    };
+
+    video.addEventListener("timeupdate", handleTimeUpdate);
+    return () => {
+      video.removeEventListener("timeupdate", handleTimeUpdate);
+    };
+  }, [videoSrc, embeddedCues]);
+
   useEffect(() => {
     if (!joined || !videoSrc || micEnabled) return;
     const cfg = voiceAutoConfigRef.current;
@@ -639,7 +638,9 @@ export default function App() {
     const el = remoteVideoRef.current;
     if (!el) return;
     if (remoteVideoStream) {
-      el.srcObject = remoteVideoStream;
+      if (el.srcObject !== remoteVideoStream) {
+        el.srcObject = remoteVideoStream;
+      }
       el.play().catch((err) => {
         console.warn("[WebRTC] Remote video autoplay engellendi:", err.message);
       });
@@ -656,67 +657,113 @@ export default function App() {
     { urls: "stun:stun4.l.google.com:19302" },
   ];
 
-  const initWebRTC = (initiator, initialSignal = null, sendVideo = false) => {
-    if (initWebRTCRef.current) {
-      console.log("[WebRTC] Zaten başlatılıyor, atlanıyor...");
-      return;
+  const destroyPeer = () => {
+    if (peerRef.current) {
+      const oldPeer = peerRef.current;
+      const oldGen = oldPeer._generation || "?";
+      console.log(`[WebRTC] Peer yok ediliyor (generation: ${oldGen})...`);
+      peerRef.current = null;
+      oldPeer._destroying = true;
+      try { oldPeer.destroy(); } catch (_) {}
     }
+    if (iceRetryTimeoutRef.current) { clearTimeout(iceRetryTimeoutRef.current); iceRetryTimeoutRef.current = null; }
+    initWebRTCRef.current = false;
+  };
+
+  const initWebRTC = (initiator, initialSignal = null, sendVideo = false, skipDestroy = false) => {
+    if (!skipDestroy) {
+      destroyPeer();
+    }
+    const generation = ++initWebRTCGenerationRef.current;
     initWebRTCRef.current = true;
-    console.log(`[WebRTC] Başlatılıyor... initiator: ${initiator}, video: ${sendVideo}`);
+    console.log(`[WebRTC] Başlatılıyor... initiator: ${initiator}, video: ${sendVideo}, signal: ${initialSignal?.type || 'yok'}, generation: ${generation}, skipDestroy: ${skipDestroy}`);
 
     const createPeer = (stream) => {
+      if (!stream) {
+        console.warn("[WebRTC] Stream yok, atlanıyor");
+        initWebRTCRef.current = false;
+        return;
+      }
+      if (generation !== initWebRTCGenerationRef.current) {
+        console.warn(`[WebRTC] Generation eski (${generation} != ${initWebRTCGenerationRef.current}), atlanıyor`);
+        return;
+      }
       const peer = new Peer({
         initiator,
         trickle: false,
         stream,
         config: { iceServers },
       });
+      peer._generation = generation;
       peer.on("signal", (data) => {
-        console.log(`[WebRTC] Peer sinyal gönderdi: ${data.type}`);
+        if (peerRef.current !== peer || peer._destroying) return;
+        console.log(`[WebRTC] Peer sinyal gönderdi: ${data.type} (generation: ${generation})`);
         socketRef.current.emit("webrtc_signal", { room: roomNameRef.current.trim(), signal: data });
       });
       peer.on("connect", () => {
-        console.log("[WebRTC] Peer bağlandı!");
+        if (peerRef.current !== peer) return;
+        console.log(`[WebRTC] Peer bağlandı! (generation: ${generation})`);
         setVoiceConnected(true);
         initWebRTCRef.current = false;
         if (iceRetryTimeoutRef.current) { clearTimeout(iceRetryTimeoutRef.current); iceRetryTimeoutRef.current = null; }
       });
       peer.on("stream", (remoteStream) => {
-        console.log(`[WebRTC] Remote stream alındı. Audio: ${remoteStream.getAudioTracks().length}, Video: ${remoteStream.getVideoTracks().length}`);
+        if (peerRef.current !== peer) {
+          console.warn(`[WebRTC] Stream eski peer'dan geldi, atlanıyor (generation: ${generation})`);
+          return;
+        }
+        const audioCount = remoteStream.getAudioTracks().length;
+        const videoCount = remoteStream.getVideoTracks().length;
+        const liveVideo = remoteStream.getVideoTracks().filter(t => t.readyState === "live").length;
+        console.log(`[WebRTC] Remote stream: audio=${audioCount}, video=${videoCount}, liveVideo=${liveVideo} (generation: ${generation})`);
         if (remoteAudioRef.current) {
           remoteAudioRef.current.srcObject = remoteStream;
           remoteAudioRef.current.play().catch(() => {});
         }
-        const hasVideo = remoteStream.getVideoTracks().length > 0;
-        if (hasVideo) {
-          console.log("[WebRTC] Remote video akışı var, gösteriliyor...");
+        if (liveVideo > 0) {
+          console.log("[WebRTC] Remote video gösteriliyor...");
           setRemoteVideoStream(remoteStream);
-          remoteStream.getVideoTracks().forEach(track => {
-            track.onmute = () => {
-              console.log("[WebRTC] Remote video track mute edildi");
-              setRemoteVideoStream(null);
-            };
-            track.onunmute = () => {
-              console.log("[WebRTC] Remote video track unmute edildi");
-              setRemoteVideoStream(remoteStream);
-            };
-          });
+        } else {
+          console.log("[WebRTC] Aktif video track yok");
+          setRemoteVideoStream(null);
         }
       });
       peer.on("error", (err) => {
-        console.error("[WebRTC] Hata:", err.message);
-        initWebRTCRef.current = false;
+        if (peer._destroying) {
+          console.log(`[WebRTC] Destroy sonrası hata (beklenen): ${err.message} (generation: ${generation})`);
+          return;
+        }
+        console.error(`[WebRTC] HATA (generation: ${generation}):`, err.message);
+        if (peerRef.current === peer) {
+          initWebRTCRef.current = false;
+        }
       });
       peer.on("close", () => {
-        console.log("[WebRTC] Peer bağlantısı kapandı");
-        initWebRTCRef.current = false;
+        if (peer._destroying) {
+          console.log(`[WebRTC] Destroy sonrası kapanış (beklenen) (generation: ${generation})`);
+          return;
+        }
+        console.log(`[WebRTC] Peer kapandı (generation: ${generation})`);
+        if (peerRef.current === peer) {
+          initWebRTCRef.current = false;
+        }
       });
       if (initialSignal) peer.signal(initialSignal);
       peerRef.current = peer;
+
+      if (initiator) {
+        if (iceRetryTimeoutRef.current) { clearTimeout(iceRetryTimeoutRef.current); }
+        iceRetryTimeoutRef.current = setTimeout(() => {
+          if (generation !== initWebRTCGenerationRef.current) return;
+          if (initWebRTCRef.current && peerRef.current && !peerRef.current.destroyed) {
+            console.warn("[WebRTC] ICE toplanamadı, yeniden deneniyor...");
+            initWebRTC(initiator, null, sendVideo);
+          }
+        }, 10000);
+      }
     };
 
     if (streamRef.current) {
-      const oldTracks = streamRef.current.getTracks();
       if (sendVideo && !streamRef.current.getVideoTracks().length) {
         navigator.mediaDevices.getUserMedia({ video: true })
           .then((videoStream) => {
@@ -758,122 +805,90 @@ export default function App() {
         streamRef.current.getAudioTracks().forEach(t => { t.enabled = true; });
         setMicEnabled(true);
       } else if (peerCount > 1 && !initWebRTCRef.current) {
-        initWebRTC(voiceAutoConfigRef.current.voiceMode === "initiator");
+        initWebRTC(true);
       } else if (peerCount <= 1) {
         setSystemNotice("Odadaki diğer kişi bekleniyor...");
       }
     }
   };
 
-  const toggleCamera = () => {
-    if (cameraEnabled) {
-      console.log("[WebRTC] Kamera kapatılıyor");
-      if (streamRef.current) {
-        streamRef.current.getVideoTracks().forEach(t => {
-          t.stop();
-          streamRef.current.removeTrack(t);
-        });
-      }
-      setCameraEnabled(false);
+  const toggleCamera = async () => {
+    if (cameraTogglingRef.current) {
+      console.log("[WebRTC] Kamera toggle devam ediyor, atlanıyor");
+      return;
+    }
+    cameraTogglingRef.current = true;
 
-      if (socketRef.current) {
-        socketRef.current.emit("webrtc_signal", {
-          room: roomNameRef.current.trim(),
-          signal: { type: "reset" }
-        });
-      }
-
-      const launchNewPeer = () => {
-        initWebRTCRef.current = false;
-        const currentInitiator = voiceAutoConfigRef.current.voiceMode === "initiator";
-        initWebRTC(currentInitiator, null, false);
-      };
-
-      if (peerRef.current) {
-        const oldPeer = peerRef.current;
-        peerRef.current = null;
-        let launched = false;
-        const safeLaunch = () => {
-          if (launched) return;
-          launched = true;
-          launchNewPeer();
-        };
-        oldPeer.once("close", safeLaunch);
-        setTimeout(safeLaunch, 200);
-        try { oldPeer.destroy(); } catch (_) {}
+    try {
+      if (cameraEnabled) {
+        console.log("[WebRTC] Kamera kapatılıyor (sadece disable)");
+        if (streamRef.current) {
+          streamRef.current.getVideoTracks().forEach(t => { t.enabled = false; });
+        }
+        setCameraEnabled(false);
       } else {
-        launchNewPeer();
-      }
-    } else {
-      console.log("[WebRTC] Kamera açılıyor...");
-      if (!streamRef.current) {
-        navigator.mediaDevices.getUserMedia({ audio: true, video: true })
-          .then((newStream) => {
-            console.log("[WebRTC] Yeni stream alındı (ses+kamera)");
-            streamRef.current = newStream;
-            setMicEnabled(true);
-            setCameraEnabled(true);
-            if (peerCount > 1) {
-              if (socketRef.current) {
-                socketRef.current.emit("webrtc_signal", {
-                  room: roomNameRef.current.trim(),
-                  signal: { type: "reset" }
-                });
-              }
-              initWebRTCRef.current = false;
-              const currentInitiator = voiceAutoConfigRef.current.voiceMode === "initiator";
-              initWebRTC(currentInitiator, null, true);
-            }
-          })
-          .catch((err) => {
-            console.error("[WebRTC] Ses+kamera hatası:", err.message);
-            setSystemNotice("Mikrofon/kamera erişimine izin vermeniz gerekiyor.");
-          });
-        return;
-      }
-      navigator.mediaDevices.getUserMedia({ video: true })
-        .then((videoStream) => {
-          const videoTrack = videoStream.getVideoTracks()[0];
-          if (!videoTrack) return;
+        console.log("[WebRTC] Kamera açılıyor...");
+        const peer = peerRef.current;
+        const hasPeer = peer && !peer.destroyed && peer._pc;
+
+        if (!streamRef.current) {
+          const newStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+          console.log("[WebRTC] Yeni stream alındı (ses+kamera)");
+          streamRef.current = newStream;
+          setMicEnabled(true);
           setCameraEnabled(true);
-
-          if (streamRef.current) {
-            streamRef.current.addTrack(videoTrack);
+          if (peerCount > 1) {
+            initWebRTC(true, null, true);
           }
+        } else {
+          const existingVideo = streamRef.current.getVideoTracks().filter(t => t.readyState === "live");
 
-          if (socketRef.current) {
-            socketRef.current.emit("webrtc_signal", {
-              room: roomNameRef.current.trim(),
-              signal: { type: "reset" }
-            });
-          }
+          if (existingVideo.length > 0) {
+            console.log("[WebRTC] Mevcut video track tekrar açılıyor");
+            existingVideo.forEach(t => { t.enabled = true; });
+            setCameraEnabled(true);
 
-          const launchNewPeer = () => {
-            initWebRTCRef.current = false;
-            const currentInitiator = voiceAutoConfigRef.current.voiceMode === "initiator";
-            initWebRTC(currentInitiator, null, true);
-          };
-
-          if (peerRef.current) {
-            const oldPeer = peerRef.current;
-            peerRef.current = null;
-            let launched = false;
-            const safeLaunch = () => {
-              if (launched) return;
-              launched = true;
-              launchNewPeer();
-            };
-            oldPeer.once("close", safeLaunch);
-            setTimeout(safeLaunch, 200);
-            try { oldPeer.destroy(); } catch (_) {}
+            if (hasPeer) {
+              const sender = peer._pc.getSenders().find(s => s.track && s.track.kind === "video");
+              if (sender) {
+                console.log("[WebRTC] replaceTrack ile karşıya bildiriliyor");
+                await sender.replaceTrack(existingVideo[0]);
+              }
+            }
           } else {
-            launchNewPeer();
+            const newStream = await navigator.mediaDevices.getUserMedia({ video: true });
+            const newTrack = newStream.getVideoTracks()[0];
+            if (!newTrack) {
+              console.warn("[WebRTC] Video track alınamadı");
+              return;
+            }
+            console.log("[WebRTC] Yeni video track alındı");
+            setCameraEnabled(true);
+            streamRef.current.addTrack(newTrack);
+
+            if (hasPeer) {
+              const sender = peer._pc.getSenders().find(s => s.track && s.track.kind === "video");
+              if (sender) {
+                console.log("[WebRTC] replaceTrack ile ilk video eklendi");
+                await sender.replaceTrack(newTrack);
+              } else {
+                console.log("[WebRTC] İlk video, peer._pc.addTrack ile ekleniyor...");
+                peer._pc.addTrack(newTrack, streamRef.current);
+              }
+            } else {
+              if (peerCount > 1) {
+                initWebRTC(true, null, true);
+              }
+            }
           }
-        })
-        .catch((err) => {
-          console.error("[WebRTC] Kamera hatası:", err.message);
-          setSystemNotice("Kamera erişimine izin vermeniz gerekiyor.");
-        });
+        }
+      }
+    } catch (err) {
+      console.error("[WebRTC] Kamera hatası:", err.message);
+      setSystemNotice("Kamera erişimine izin vermeniz gerekiyor.");
+      setCameraEnabled(false);
+    } finally {
+      cameraTogglingRef.current = false;
     }
   };
 
@@ -891,10 +906,7 @@ export default function App() {
     const id = ++emojiIdRef.current;
     const x = 10 + Math.random() * 80;
     setFlyingEmojis((prev) => [...prev, { id, emoji, x }]);
-    const timeoutId = setTimeout(() => {
-      setFlyingEmojis((prev) => prev.filter((e) => e.id !== id));
-      emojiTimeoutRefs.current = emojiTimeoutRefs.current.filter((tid) => tid !== timeoutId);
-    }, 2200);
+    const timeoutId = setTimeout(() => setFlyingEmojis((prev) => prev.filter((e) => e.id !== id)), 2200);
     emojiTimeoutRefs.current.push(timeoutId);
   }, []);
 
@@ -934,122 +946,89 @@ export default function App() {
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
   };
 
-  const extractEmbeddedSubtitles = (file) => {
+  const extractEmbeddedSubtitlesOld = (file) => {
     return new Promise((resolve) => {
       try {
-        const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks
-        let offset = 0;
-        const mp4 = MP4Box.createFile();
-        const extractedTracks = [];
-        const pendingTracks = new Set();
-        let isReady = false;
-        let hasTextTracks = false;
-
-        mp4.onReady = (info) => {
-          isReady = true;
-          info.tracks.forEach((track) => {
-            const isText = track.type === "text" ||
-              (track.codec && (
-                track.codec.includes("text") || track.codec.includes("subt") ||
-                track.codec.includes("stpp") || track.codec.includes("wvtt") ||
-                track.kind === "subtitles"
-              ));
-            if (isText) {
-              hasTextTracks = true;
-              extractedTracks.push({
-                id: track.id,
-                codec: track.codec,
-                language: track.language || "und",
-                name: track.name || "Altyazı",
-                vttContent: null,
-                allSamples: []
-              });
-              pendingTracks.add(track.id);
-              mp4.setExtractionOptions(track.id, null, { nbSamples: Infinity });
-            }
-          });
-
-          if (pendingTracks.size === 0) {
-            resolve([]);
-          }
-        };
-
-        mp4.onSamples = (trackId, user, samples) => {
-          if (!pendingTracks.has(trackId)) return;
-          const track = extractedTracks.find((t) => t.id === trackId);
-          if (track) {
-            track.allSamples.push(...samples);
-          }
-        };
-
-        mp4.onError = (err) => {
-          console.warn("MP4Box error:", err);
-          resolve([]);
-        };
-
-        const readNextChunk = () => {
-          if (offset >= file.size) {
-            finishExtraction();
-            return;
-          }
-
-          // Eğer dosya hazırlandıysa ve hiç altyazı yoksa okumayı hemen durdur
-          if (isReady && !hasTextTracks) {
-            resolve([]);
-            return;
-          }
-
-          const slice = file.slice(offset, offset + CHUNK_SIZE);
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            const buffer = e.target.result;
-            buffer.fileStart = offset;
-            try {
-              mp4.appendBuffer(buffer);
-            } catch (err) {
-              console.warn("MP4Box append error:", err);
-              resolve([]);
-              return;
-            }
-            offset += CHUNK_SIZE;
-            setTimeout(readNextChunk, 1);
-          };
-          reader.onerror = () => resolve([]);
-          reader.readAsArrayBuffer(slice);
-        };
-
-        const finishExtraction = () => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
           try {
-            mp4.flush();
-            extractedTracks.forEach((track) => {
-              if (track.allSamples.length === 0) return;
-              const decoder = new TextDecoder("utf-8");
-              let vttContent = "WEBVTT\n\n";
-              let idx = 0;
-              track.allSamples.forEach((sample) => {
-                try {
-                  const rawBytes = new Uint8Array(sample.data);
-                  const text = decoder.decode(rawBytes).replace(/\0/g, "").trim();
-                  if (!text) return;
-                  const start = formatVTTTimestamp(sample.cts / sample.timescale);
-                  const end = formatVTTTimestamp((sample.cts + sample.duration) / sample.timescale);
-                  vttContent += `${++idx}\n${start} --> ${end}\n${text}\n\n`;
-                } catch (_) {}
+            const buffer = e.target.result;
+            const mp4 = MP4Box.createFile();
+            const extractedTracks = [];
+            const pendingTracks = new Set();
+
+            mp4.onReady = (info) => {
+              info.tracks.forEach((track) => {
+                const isText = track.type === "text" ||
+                  (track.codec && (
+                    track.codec.includes("text") || track.codec.includes("subt") ||
+                    track.codec.includes("stpp") || track.codec.includes("wvtt") ||
+                    track.kind === "subtitles"
+                  ));
+                if (isText) {
+                  extractedTracks.push({
+                    id: track.id,
+                    codec: track.codec,
+                    language: track.language || "und",
+                    name: track.name || "Altyazı",
+                    vttContent: null,
+                    allSamples: []
+                  });
+                  pendingTracks.add(track.id);
+                  mp4.setExtractionOptions(track.id, null, { nbSamples: Infinity });
+                }
               });
-              track.vttContent = vttContent;
-            });
-            resolve(extractedTracks.filter((t) => t.vttContent));
+
+              if (pendingTracks.size === 0) {
+                mp4.flush();
+                resolve([]);
+                return;
+              }
+            };
+
+            mp4.onSamples = (trackId, user, samples) => {
+              if (!pendingTracks.has(trackId)) return;
+
+              const track = extractedTracks.find((t) => t.id === trackId);
+              if (!track) return;
+
+              track.allSamples.push(...samples);
+            };
+
+            mp4.onError = () => resolve([]);
+
+            buffer.fileStart = 0;
+            mp4.appendBuffer(buffer);
+            mp4.flush();
+
+            setTimeout(() => {
+              extractedTracks.forEach((track) => {
+                if (track.allSamples.length === 0) return;
+                const decoder = new TextDecoder("utf-8");
+                let vttContent = "WEBVTT\n\n";
+                let idx = 0;
+                track.allSamples.forEach((sample) => {
+                  try {
+                    const rawBytes = new Uint8Array(sample.data);
+                    const text = decoder.decode(rawBytes).replace(/\0/g, "").trim();
+                    if (!text) return;
+                    const start = formatVTTTimestamp(sample.cts / sample.timescale);
+                    const end = formatVTTTimestamp((sample.cts + sample.duration) / sample.timescale);
+                    vttContent += `${++idx}\n${start} --> ${end}\n${text}\n\n`;
+                  } catch (_) {}
+                });
+                track.vttContent = vttContent;
+              });
+              resolve(extractedTracks.filter((t) => t.vttContent));
+            }, 200);
           } catch (err) {
-            console.warn("Finish extraction error:", err);
+            console.warn("Embedded altyazı çıkarma hatası:", err);
             resolve([]);
           }
         };
-
-        readNextChunk();
-      } catch (err) {
-        console.warn("Subtitle extraction setup failed:", err);
-        resolve([]);
-      }
+        reader.onerror = () => resolve([]);
+        reader.readAsArrayBuffer(file);
+      } catch { resolve([]); }
     });
   };
 
@@ -1089,16 +1068,57 @@ export default function App() {
       if (socketRef.current) socketRef.current.emit("file_info", { room: roomName.trim(), ...meta });
     };
     tmpVideo.src = url;
-    const subs = await extractEmbeddedSubtitles(file);
-    const subsWithBlob = subs.map((t) => ({
-      ...t,
-      vttBlobUrl: t.vttContent
-        ? URL.createObjectURL(new Blob([t.vttContent], { type: "text/vtt" }))
-        : null
-    }));
-    subsWithBlob.forEach(t => trackBlobUrl(t.vttBlobUrl));
-    setSubtitleTracks(subsWithBlob);
-    if (subsWithBlob.length > 0) setSystemNotice(`💬 ${subsWithBlob.length} altyazı track'i çıkarıldı.`);
+
+    setSubtitleExtracting(true);
+    setEmbeddedCues([]);
+    setActiveEmbeddedTrack(null);
+    try {
+      const subs = await extractEmbeddedSubtitles(file, (progress) => {
+        console.log(`[Subtitle] Çıkarma: %${progress}`);
+      });
+      const subsWithBlob = subs.map((t) => ({
+        ...t,
+        vttBlobUrl: t.vttContent
+          ? URL.createObjectURL(new Blob([t.vttContent], { type: "text/vtt" }))
+          : null,
+        cues: parseVTT(t.vttContent),
+      }));
+      subsWithBlob.forEach(t => trackBlobUrl(t.vttBlobUrl));
+      setSubtitleTracks(subsWithBlob);
+      if (subsWithBlob.length > 0) {
+        setActiveEmbeddedTrack(subsWithBlob[0].id);
+        setEmbeddedCues(subsWithBlob[0].cues || []);
+        setSystemNotice(`💬 ${subsWithBlob.length} altyazı track'i çıkarıldı.`);
+      } else {
+        setSystemNotice("ℹ️ Videoda gömülü altyazı bulunamadı. Altyazı dosyası (.srt/.vtt) ekleyebilirsiniz.");
+      }
+    } catch (err) {
+      console.warn("[Subtitle] Çıkarma hatası, MP4Box fallback deneniyor:", err);
+      try {
+        const subs = await extractEmbeddedSubtitlesOld(file);
+        const subsWithBlob = subs.map((t) => ({
+          ...t,
+          vttBlobUrl: t.vttContent
+            ? URL.createObjectURL(new Blob([t.vttContent], { type: "text/vtt" }))
+            : null,
+          cues: parseVTT(t.vttContent),
+        }));
+        subsWithBlob.forEach(t => trackBlobUrl(t.vttBlobUrl));
+        setSubtitleTracks(subsWithBlob);
+        if (subsWithBlob.length > 0) {
+          setActiveEmbeddedTrack(subsWithBlob[0].id);
+          setEmbeddedCues(subsWithBlob[0].cues || []);
+          setSystemNotice(`💬 ${subsWithBlob.length} altyazı track'i çıkarıldı (MP4Box).`);
+        } else {
+          setSystemNotice("ℹ️ Videoda gömülü altyazı bulunamadı. Altyazı dosyası (.srt/.vtt) ekleyebilirsiniz.");
+        }
+      } catch (fbErr) {
+        console.error("[Subtitle] MP4Box fallback de başarısız:", fbErr);
+        setSystemNotice("⚠️ Altyazı çıkarma başarısız oldu. Altyazı dosyası (.srt/.vtt) ile ekleyebilirsiniz.");
+      }
+    } finally {
+      setSubtitleExtracting(false);
+    }
   };
 
   const handleSubtitleSelect = (e) => {
@@ -1143,8 +1163,9 @@ export default function App() {
     });
   }, [roomName, isAdmin]);
 
-  const handlePlay = () => {
+  const handlePlay = (e) => {
     if (!isAdmin) {
+      e.preventDefault();
       const video = videoRef.current;
       if (video && !isIncomingSignal.current) {
         video.pause();
@@ -1203,6 +1224,8 @@ export default function App() {
     setVideoFileMeta(null); setMessages([]); setPeerCount(1); setPeerName("");
     setIsAdmin(false); setFileMismatch(false); setPeerTimeDiff(null);
     setActiveCueText(""); setSubtitleSrc(null); setSubtitleTracks([]);
+    setEmbeddedCues([]); setActiveEmbeddedTrack(null); setSubtitleExtracting(false);
+    setShowTrackSelector(false);
     saveSession(null);
   };
 
@@ -1246,12 +1269,12 @@ export default function App() {
             placeholder="Şifreyi giriniz"
             value={authPass}
             onChange={(e) => setAuthPass(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && authPass === (import.meta.env.VITE_AUTH_PASS || "12345")) setIsAuthenticated(true); }}
+            onKeyDown={(e) => { if (e.key === "Enter" && authPass === "12345") setIsAuthenticated(true); }}
           />
           <button
             className="enter-btn"
             onClick={() => {
-              if (authPass === (import.meta.env.VITE_AUTH_PASS || "12345")) setIsAuthenticated(true);
+              if (authPass === "12345") setIsAuthenticated(true);
               else alert("Hatalı şifre!");
             }}
           >
@@ -1497,6 +1520,14 @@ export default function App() {
                 ))}
               </video>
 
+              {/* Subtitle extraction loading */}
+              {subtitleExtracting && (
+                <div className="subtitle-loading">
+                  <div className="subtitle-loading-spinner"></div>
+                  <span>Altyazı hazırlanıyor...</span>
+                </div>
+              )}
+
               {/* Custom subtitle overlay */}
               {activeCueText && (
                 <div
@@ -1519,7 +1550,33 @@ export default function App() {
               {(subtitleSrc || subtitleTracks.length > 0) && (
                 <div className="subtitle-indicator">
                   💬 Altyazı
+                  {subtitleTracks.length > 1 && (
+                    <button className="subtitle-settings-btn" onClick={() => setShowTrackSelector(!showTrackSelector)}>🌍</button>
+                  )}
                   <button className="subtitle-settings-btn" onClick={() => setShowSubtitleSettings(!showSubtitleSettings)}>⚙️</button>
+                </div>
+              )}
+
+              {showTrackSelector && subtitleTracks.length > 1 && (
+                <div className="subtitle-settings-panel" style={{ right: 100 }}>
+                  <div className="subtitle-settings-title">Dil Seç</div>
+                  {subtitleTracks.map((track) => (
+                    <button
+                      key={track.id}
+                      className={`subtitle-track-btn ${activeEmbeddedTrack === track.id ? "active" : ""}`}
+                      onClick={() => {
+                        setActiveEmbeddedTrack(track.id);
+                        const selected = subtitleTracks.find(t => t.id === track.id);
+                        if (selected && selected.cues) {
+                          setEmbeddedCues(selected.cues);
+                        }
+                        setShowTrackSelector(false);
+                      }}
+                    >
+                      {track.name || track.language}
+                      {activeEmbeddedTrack === track.id && " ✓"}
+                    </button>
+                  ))}
                 </div>
               )}
 
@@ -1585,27 +1642,6 @@ export default function App() {
           {peerCount > 1 && (
             <div className="video-chat-area">
               <div className="video-chat-circles">
-                {/* Local video */}
-                <div className={`video-circle local ${cameraEnabled ? "has-stream" : ""}`}>
-                  {cameraEnabled ? (
-                    <video
-                      ref={(el) => {
-                        if (el && streamRef.current) {
-                          el.srcObject = streamRef.current;
-                        }
-                      }}
-                      autoPlay
-                      playsInline
-                      muted={true}
-                    />
-                  ) : (
-                    <div className="video-circle-placeholder">
-                      <span className="video-circle-initial">{myName ? myName[0].toUpperCase() : "?"}</span>
-                    </div>
-                  )}
-                  <span className="video-circle-label">{myName || "Ben"}</span>
-                </div>
-
                 {/* Remote video */}
                 <div className={`video-circle remote ${remoteVideoStream ? "has-stream" : ""}`}>
                   {remoteVideoStream ? (

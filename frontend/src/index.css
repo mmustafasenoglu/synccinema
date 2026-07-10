@@ -790,6 +790,62 @@ video::-webkit-media-text-track-container {
   white-space: pre-line;
 }
 
+/* Subtitle extraction loading */
+.subtitle-loading {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 13;
+  pointer-events: none;
+}
+.subtitle-loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Track selector buttons */
+.subtitle-track-btn {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+}
+.subtitle-track-btn:hover {
+  background: var(--pink-dim);
+  border-color: var(--pink);
+}
+.subtitle-track-btn.active {
+  background: var(--pink-dim);
+  border-color: var(--pink-deep);
+  color: var(--pink-deep);
+}
+
 /* =============================================
    VIDEO CHAT AREA (circular video under chat header)
    ============================================= */
