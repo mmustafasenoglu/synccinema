@@ -120,6 +120,14 @@ function createServer() {
         return;
       }
 
+      // Aynı isimli kullanıcı kontrolü
+      const existingUsers = getRoomUsers(roomName);
+      if (existingUsers.some(u => u.userName.toLowerCase() === (userName || "").trim().toLowerCase())) {
+        console.log(`[join_room] İsim çakışması: ${userName} odada zaten var.`);
+        socket.emit("room_full", { message: "Bu isim odada zaten kullanımda. Farklı bir isim seçin." });
+        return;
+      }
+
       socket.join(roomName);
       socket.data.room = roomName;
       socket.data.userName = userName || "Misafir";

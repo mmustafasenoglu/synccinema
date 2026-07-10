@@ -1075,6 +1075,12 @@ export default function App() {
     setVideoFileName(file.name);
     setActiveCueText("");
     revokeBlobUrl(oldUrl);
+
+    // Eski altyazı track'lerinin blob URL'lerini temizle (bellek sızıntısı engelleme)
+    subtitleTracks.forEach(t => {
+      if (t.vttBlobUrl) revokeBlobUrl(t.vttBlobUrl);
+    });
+
     const tmpVideo = document.createElement("video");
     tmpVideo.preload = "metadata";
     tmpVideo.onloadedmetadata = () => {
