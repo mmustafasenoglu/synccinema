@@ -353,6 +353,11 @@ export default function App() {
       cleanupWebRTC();
     });
 
+    socket.on("admin_changed", (data) => {
+      console.log(`[socket] Admin değişti: ${data.adminName} (${data.adminSocketId})`);
+      setIsAdmin(data.adminSocketId === socket.id);
+    });
+
     socket.on("room_full", (data) => {
       setLobbyError(data.message || "Bu oda dolu. Farklı bir kod deneyin.");
       setJoined(false);
@@ -454,7 +459,7 @@ export default function App() {
 
     socket.on("sync_response", (data) => {
       const video = videoRef.current;
-      if (!video || !data) return;
+      if (!video || !data || !video.src) return;
       const latency = (Date.now() - (data.sentAt || Date.now())) / 1000;
       let t = data.currentTime + latency;
       if (video.duration && t > video.duration) t = video.duration;
@@ -531,7 +536,7 @@ export default function App() {
   }, [lobbyError]);
 
   useEffect(() => {
-    if (!joined || !videoSrc) return;
+    if (!joined || !videoSrc || !isAdmin) return;
     const interval = setInterval(() => {
       const video = videoRef.current;
       if (video && !video.paused && socketRef.current) {
@@ -543,7 +548,7 @@ export default function App() {
       }
     }, SYNC_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [joined, videoSrc, roomName]);
+  }, [joined, videoSrc, roomName, isAdmin]);
 
   useEffect(() => {
     if (!videoSrc || !videoRef.current) return;
@@ -1198,9 +1203,8 @@ export default function App() {
     });
   }, [roomName, isAdmin]);
 
-  const handlePlay = (e) => {
+  const handlePlay = () => {
     if (!isAdmin) {
-      e.preventDefault();
       const video = videoRef.current;
       if (video && !isIncomingSignal.current) {
         video.pause();
@@ -1304,12 +1308,12 @@ export default function App() {
             placeholder="Şifreyi giriniz"
             value={authPass}
             onChange={(e) => setAuthPass(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && authPass === "12345") setIsAuthenticated(true); }}
+            onKeyDown={(e) => { if (e.key === "Enter" && authPass === (import.meta.env.VITE_AUTH_PASS || "12345")) setIsAuthenticated(true); }}
           />
           <button
             className="enter-btn"
             onClick={() => {
-              if (authPass === "12345") setIsAuthenticated(true);
+              if (authPass === (import.meta.env.VITE_AUTH_PASS || "12345")) setIsAuthenticated(true);
               else alert("Hatalı şifre!");
             }}
           >
