@@ -857,66 +857,65 @@ export default function App() {
 
     try {
       if (cameraEnabled) {
-        console.log("[WebRTC] Kamera kapatılıyor (sadece disable)");
+        // Kamerayı kapat: track'i tamamen durdur
+        console.log("[WebRTC] Kamera kapatılıyor...");
         if (streamRef.current) {
-          streamRef.current.getVideoTracks().forEach(t => { t.enabled = false; });
+          streamRef.current.getVideoTracks().forEach(t => {
+            t.stop();
+            try { streamRef.current.removeTrack(t); } catch (_) {}
+          });
         }
         setCameraEnabled(false);
+
+        // Karşı tarafa reset sinyali gönder: her iki taraf peer'ı yeniden kursun
+        if (peerCount > 1 && socketRef.current) {
+          console.log("[WebRTC] Reset sinyali gönderiliyor (kamera kapatma)");
+          socketRef.current.emit("webrtc_signal", {
+            room: roomNameRef.current.trim(),
+            signal: { type: "reset" }
+          });
+          const currentInitiator = voiceAutoConfigRef.current.voiceMode === "initiator";
+          setTimeout(() => {
+            destroyPeer();
+            initWebRTC(currentInitiator, null, false);
+          }, 150);
+        }
       } else {
+        // Kamerayı aç
         console.log("[WebRTC] Kamera açılıyor...");
-        const peer = peerRef.current;
-        const hasPeer = peer && !peer.destroyed && peer._pc;
 
         if (!streamRef.current) {
+          // Hiç stream yok: ses + kamera
           const newStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
           console.log("[WebRTC] Yeni stream alındı (ses+kamera)");
           streamRef.current = newStream;
           setMicEnabled(true);
           setCameraEnabled(true);
-          if (peerCount > 1) {
-            initWebRTC(true, null, true);
-          }
         } else {
-          const existingVideo = streamRef.current.getVideoTracks().filter(t => t.readyState === "live");
-
-          if (existingVideo.length > 0) {
-            console.log("[WebRTC] Mevcut video track tekrar açılıyor");
-            existingVideo.forEach(t => { t.enabled = true; });
-            setCameraEnabled(true);
-
-            if (hasPeer) {
-              const sender = peer._pc.getSenders().find(s => s.track && s.track.kind === "video");
-              if (sender) {
-                console.log("[WebRTC] replaceTrack ile karşıya bildiriliyor");
-                await sender.replaceTrack(existingVideo[0]);
-              }
-            }
-          } else {
-            const newStream = await navigator.mediaDevices.getUserMedia({ video: true });
-            const newTrack = newStream.getVideoTracks()[0];
-            if (!newTrack) {
-              console.warn("[WebRTC] Video track alınamadı");
-              return;
-            }
-            console.log("[WebRTC] Yeni video track alındı");
-            setCameraEnabled(true);
-            streamRef.current.addTrack(newTrack);
-
-            if (hasPeer) {
-              const sender = peer._pc.getSenders().find(s => s.track && s.track.kind === "video");
-              if (sender) {
-                console.log("[WebRTC] replaceTrack ile ilk video eklendi");
-                await sender.replaceTrack(newTrack);
-              } else {
-                console.log("[WebRTC] İlk video, peer._pc.addTrack ile ekleniyor...");
-                peer._pc.addTrack(newTrack, streamRef.current);
-              }
-            } else {
-              if (peerCount > 1) {
-                initWebRTC(true, null, true);
-              }
-            }
+          // Ses stream'i var: video track ekle
+          const newVideoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          const newTrack = newVideoStream.getVideoTracks()[0];
+          if (!newTrack) {
+            console.warn("[WebRTC] Video track alınamadı");
+            return;
           }
+          console.log("[WebRTC] Yeni video track stream'e eklendi");
+          streamRef.current.addTrack(newTrack);
+          setCameraEnabled(true);
+        }
+
+        // Her iki tarafı reset sinyali ile yeniden bağla (video dahil)
+        if (peerCount > 1 && socketRef.current) {
+          console.log("[WebRTC] Reset sinyali gönderiliyor (kamera açma)");
+          socketRef.current.emit("webrtc_signal", {
+            room: roomNameRef.current.trim(),
+            signal: { type: "reset" }
+          });
+          const currentInitiator = voiceAutoConfigRef.current.voiceMode === "initiator";
+          setTimeout(() => {
+            destroyPeer();
+            initWebRTC(currentInitiator, null, true);
+          }, 150);
         }
       }
     } catch (err) {
