@@ -245,6 +245,7 @@ export default function App() {
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [voiceAutoConfig, setVoiceAutoConfig] = useState({ autoVoice: false, voiceMode: "waiting" });
   const [remoteVideoStream, setRemoteVideoStream] = useState(null);
+  const [localVideoStream, setLocalVideoStream] = useState(null);
 
   // --- Mobile Chat ---
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
@@ -276,6 +277,8 @@ export default function App() {
   const blobUrlsRef = useRef([]);
   const emojiTimeoutRefs = useRef([]);
   const voiceAutoConfigRef = useRef(voiceAutoConfig);
+  const cameraEnabledRef = useRef(false);
+  const localVideoRef = useRef(null);
 
   // ---------------------------------------------------------------
   // SOCKET
@@ -499,6 +502,7 @@ export default function App() {
   useEffect(() => { mobileChatOpenRef.current = mobileChatOpen; }, [mobileChatOpen]);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
   useEffect(() => { voiceAutoConfigRef.current = voiceAutoConfig; }, [voiceAutoConfig]);
+  useEffect(() => { cameraEnabledRef.current = cameraEnabled; }, [cameraEnabled]);
 
   useEffect(() => {
     if (isAuthenticated && joined && roomName && myName) saveSession({ roomName, myName });
@@ -616,12 +620,12 @@ export default function App() {
   }, [videoSrc, embeddedCues]);
 
   useEffect(() => {
-    if (!joined || !videoSrc || micEnabled) return;
+    if (!joined || micEnabled) return;
     const cfg = voiceAutoConfigRef.current;
     if (!cfg.autoVoice || voiceAutoStartedRef.current) return;
     voiceAutoStartedRef.current = true;
     initWebRTC(cfg.voiceMode === "initiator");
-  }, [joined, videoSrc, micEnabled, voiceAutoConfig]);
+  }, [joined, micEnabled, voiceAutoConfig]);
 
   // ---------------------------------------------------------------
   // WEBRTC
@@ -638,6 +642,7 @@ export default function App() {
     setMicEnabled(false);
     setCameraEnabled(false);
     setRemoteVideoStream(null);
+    setLocalVideoStream(null);
     console.log("[WebRTC] Temizlendi.");
   };
 
@@ -656,6 +661,30 @@ export default function App() {
       el.srcObject = null;
     }
   }, [remoteVideoStream]);
+
+  // localVideoStream değişince ref'e srcObject ata
+  useEffect(() => {
+    const el = localVideoRef.current;
+    if (!el) return;
+    if (localVideoStream) {
+      if (el.srcObject !== localVideoStream) {
+        el.srcObject = localVideoStream;
+      }
+      el.play().catch(() => {});
+    } else {
+      el.srcObject = null;
+    }
+  }, [localVideoStream]);
+
+  // streamRef'teki değişiklikleri localVideoStream'e aktar
+  useEffect(() => {
+    const stream = streamRef.current;
+    if (stream && stream.getVideoTracks().length > 0 && cameraEnabled) {
+      setLocalVideoStream(stream);
+    } else {
+      setLocalVideoStream(null);
+    }
+  }, [cameraEnabled, voiceConnected]);
 
   const iceServers = [
     { urls: "stun:stun.l.google.com:19302" },
@@ -722,13 +751,12 @@ export default function App() {
         }
         const audioCount = remoteStream.getAudioTracks().length;
         const videoCount = remoteStream.getVideoTracks().length;
-        const liveVideo = remoteStream.getVideoTracks().filter(t => t.readyState === "live").length;
-        console.log(`[WebRTC] Remote stream: audio=${audioCount}, video=${videoCount}, liveVideo=${liveVideo} (generation: ${generation})`);
+        console.log(`[WebRTC] Remote stream: audio=${audioCount}, video=${videoCount} (generation: ${generation})`);
         if (remoteAudioRef.current) {
           remoteAudioRef.current.srcObject = remoteStream;
           remoteAudioRef.current.play().catch(() => {});
         }
-        if (liveVideo > 0) {
+        if (videoCount > 0) {
           console.log("[WebRTC] Remote video gösteriliyor...");
           setRemoteVideoStream(remoteStream);
         } else {
@@ -1650,6 +1678,22 @@ export default function App() {
           {peerCount > 1 && (
             <div className="video-chat-area">
               <div className="video-chat-circles">
+                {/* Local video */}
+                <div className={`video-circle local ${cameraEnabled && localVideoStream ? "has-stream" : ""}`}>
+                  {cameraEnabled && localVideoStream ? (
+                    <video
+                      ref={localVideoRef}
+                      autoPlay
+                      playsInline
+                      muted={true}
+                    />
+                  ) : (
+                    <div className="video-circle-placeholder">
+                      <span className="video-circle-initial">{myName ? myName[0].toUpperCase() : "?"}</span>
+                    </div>
+                  )}
+                  <span className="video-circle-label">{myName || "Sen"}</span>
+                </div>
                 {/* Remote video */}
                 <div className={`video-circle remote ${remoteVideoStream ? "has-stream" : ""}`}>
                   {remoteVideoStream ? (
