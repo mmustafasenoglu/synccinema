@@ -269,11 +269,30 @@ function createServer() {
       const remaining = io.sockets.adapter.rooms.get(data.room)?.size || 0;
       roomUserCounts[data.room] = remaining;
       console.log(`[leave_room] ${socket.data.userName || "?"} odayı terk etti. Oda: ${data.room}, Kalan: ${remaining}`);
+      
+      if (roomAdmins[data.room] === socket.id) {
+        delete roomAdmins[data.room];
+      }
+
       const users = getRoomUsers(data.room);
+      let nextAdminName = "";
+      if (remaining > 0 && users.length > 0) {
+        const nextAdmin = users[0];
+        roomAdmins[data.room] = nextAdmin.socketId;
+        nextAdminName = nextAdmin.userName;
+        console.log(`[leave_room] Yeni admin atandı: ${nextAdmin.userName} (${nextAdmin.socketId})`);
+        
+        io.to(data.room).emit("admin_changed", {
+          adminName: nextAdmin.userName,
+          adminSocketId: nextAdmin.socketId
+        });
+      }
+
       socket.to(data.room).emit("user_left", {
         message: `${socket.data.userName || "Karşı taraf"} odadan ayrıldı.`,
         userCount: remaining,
-        users: users
+        users: users,
+        adminName: nextAdminName
       });
       if (remaining === 0) {
         startRoomTimer(data.room);
@@ -289,11 +308,30 @@ function createServer() {
         const remaining = io.sockets.adapter.rooms.get(room)?.size || 0;
         roomUserCounts[room] = remaining;
         console.log(`[disconnect] ${socket.data.userName || "?"}  ayrıldı. Oda: ${room}, Kalan: ${remaining}`);
+        
+        if (roomAdmins[room] === socket.id) {
+          delete roomAdmins[room];
+        }
+
         const users = getRoomUsers(room);
+        let nextAdminName = "";
+        if (remaining > 0 && users.length > 0) {
+          const nextAdmin = users[0];
+          roomAdmins[room] = nextAdmin.socketId;
+          nextAdminName = nextAdmin.userName;
+          console.log(`[disconnect] Yeni admin atandı: ${nextAdmin.userName} (${nextAdmin.socketId})`);
+          
+          io.to(room).emit("admin_changed", {
+            adminName: nextAdmin.userName,
+            adminSocketId: nextAdmin.socketId
+          });
+        }
+
         socket.to(room).emit("user_left", {
           message: `${socket.data.userName || "Karşı taraf"} bağlantısı kesildi — video duraklatıldı.`,
           userCount: remaining,
-          users: users
+          users: users,
+          adminName: nextAdminName
         });
         // Oda tamamen boşaldıysa zamanlayıcı başlat
         if (remaining === 0) {
