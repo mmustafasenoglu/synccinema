@@ -32,6 +32,16 @@ describe("SyncCinema Backend Tests", () => {
     return socket;
   }
 
+  function waitForEvent(socket, event, timeout = 2000) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`Timeout waiting for ${event}`)), timeout);
+      socket.once(event, (data) => {
+        clearTimeout(timer);
+        resolve(data);
+      });
+    });
+  }
+
   test("video_action karşı tarafa iletilir", (done) => {
     const s1 = createClient();
     const s2 = createClient();
@@ -105,8 +115,8 @@ describe("SyncCinema Backend Tests", () => {
     let ready = 0;
     const check = () => { if (++ready === 2) join(); };
     const join = () => {
-      s1.emit("join_room", { roomName: "leave-test", userName: "A" });
-      setTimeout(() => s2.emit("join_room", { roomName: "leave-test", userName: "B" }), 50);
+      s1.emit("join_room", { roomName: "leave-test-1", userName: "A" });
+      setTimeout(() => s2.emit("join_room", { roomName: "leave-test-1", userName: "B" }), 50);
     };
     s1.on("connect", check);
     s2.on("connect", check);
@@ -115,5 +125,133 @@ describe("SyncCinema Backend Tests", () => {
       done();
     });
     setTimeout(() => s1.disconnect(), 300);
+  });
+
+  test("şifreli oda - doğru şifre ile katılınır", (done) => {
+    const s1 = createClient();
+    const s2 = createClient();
+    let ready = 0;
+    const check = () => { if (++ready === 2) join(); };
+    const join = () => {
+      s1.emit("join_room", { roomName: "pwd-test", userName: "A", roomPassword: "secret123" });
+      setTimeout(() => {
+        s2.emit("join_room", { roomName: "pwd-test", userName: "B", roomPassword: "secret123" });
+      }, 100);
+    };
+    s1.on("connect", check);
+    s2.on("connect", check);
+    s2.on("room_status", (data) => {
+      expect(data.userCount).toBe(2);
+      expect(data.hasPassword).toBe(true);
+      done();
+    });
+  });
+
+  test("şifreli oda - yanlış şifre ile reddedilir", (done) => {
+    const s1 = createClient();
+    const s2 = createClient();
+    let ready = 0;
+    const check = () => { if (++ready === 2) join(); };
+    const join = () => {
+      s1.emit("join_room", { roomName: "pwd-wrong-test", userName: "A", roomPassword: "secret123" });
+      setTimeout(() => {
+        s2.emit("join_room", { roomName: "pwd-wrong-test", userName: "B", roomPassword: "wrongpassword" });
+      }, 100);
+    };
+    s1.on("connect", check);
+    s2.on("connect", check);
+    s2.on("wrong_password", (data) => {
+      expect(data.message).toContain("şifre");
+      done();
+    });
+  });
+
+  test("şifresiz oda - herkes katılabilir", (done) => {
+    const s1 = createClient();
+    const s2 = createClient();
+    let ready = 0;
+    const check = () => { if (++ready === 2) join(); };
+    const join = () => {
+      s1.emit("join_room", { roomName: "no-pwd-test", userName: "A" });
+      setTimeout(() => {
+        s2.emit("join_room", { roomName: "no-pwd-test", userName: "B" });
+      }, 100);
+    };
+    s1.on("connect", check);
+    s2.on("connect", check);
+    s2.on("room_status", (data) => {
+      expect(data.userCount).toBe(2);
+      expect(data.hasPassword).toBe(false);
+      done();
+    });
+  });
+
+  test("admin değiştirme - admin ayrılınca diğer kullanıcıya geçer", (done) => {
+    const s1 = createClient();
+    const s2 = createClient();
+    let ready = 0;
+    const check = () => { if (++ready === 2) join(); };
+    const join = () => {
+      s1.emit("join_room", { roomName: "admin-test-1", userName: "A" });
+      setTimeout(() => s2.emit("join_room", { roomName: "admin-test-1", userName: "B" }), 50);
+    };
+    s1.on("connect", check);
+    s2.on("connect", check);
+    s2.on("admin_changed", (data) => {
+      expect(data.adminName).toBe("B");
+      done();
+    });
+    setTimeout(() => s1.disconnect(), 300);
+  });
+
+  test("rate limiting - çok fazla mesaj gönderilince engellenir", (done) => {
+    const s1 = createClient();
+    const s2 = createClient();
+    let ready = 0;
+    const check = () => { if (++ready === 2) join(); };
+    const join = () => {
+      s1.emit("join_room", { roomName: "rate-test-1", userName: "A" });
+      setTimeout(() => s2.emit("join_room", { roomName: "rate-test-1", userName: "B" }), 50);
+    };
+    s1.on("connect", check);
+    s2.on("connect", check);
+
+    let messageCount = 0;
+    s2.on("receive_message", () => { messageCount++; });
+
+    s2.on("room_status", () => {
+      // 20 mesaj gönder (limit 15)
+      for (let i = 0; i < 20; i++) {
+        s1.emit("send_message", { room: "rate-test-1", message: `msg-${i}`, sender: "A" });
+      }
+      setTimeout(() => {
+        expect(messageCount).toBeLessThanOrEqual(15);
+        done();
+      }, 200);
+    });
+  });
+
+  test("odada maksimum 2 kişi bulunabilir", (done) => {
+    const s1 = createClient();
+    const s2 = createClient();
+    const s3 = createClient();
+    let ready = 0;
+    const check = () => { if (++ready === 3) join(); };
+    const join = () => {
+      s1.emit("join_room", { roomName: "capacity-test-1", userName: "A" });
+      setTimeout(() => {
+        s2.emit("join_room", { roomName: "capacity-test-1", userName: "B" });
+      }, 50);
+      setTimeout(() => {
+        s3.emit("join_room", { roomName: "capacity-test-1", userName: "C" });
+      }, 100);
+    };
+    s1.on("connect", check);
+    s2.on("connect", check);
+    s3.on("connect", check);
+    s3.on("room_full", (data) => {
+      expect(data.message).toContain("dolu");
+      done();
+    });
   });
 });

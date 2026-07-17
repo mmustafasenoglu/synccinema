@@ -32,6 +32,7 @@ function createServer() {
   const roomPlaybackState = {};
   const roomAdmins = {}; // Oda sahibini takip et (socket.id değil, userName olarak)
   const roomTimers = {}; // Oda zamanlayıcıları
+  const roomPasswords = {}; // Oda şifreleri (opsiyonel)
   const ROOM_TIMEOUT_MS = 30 * 60 * 1000; // 30 dakika
   const RATE_LIMIT_WINDOW_MS = 1000; // 1 saniye
   const RATE_LIMIT_MAX = 15; // pencere başına maksimum event
@@ -101,14 +102,24 @@ function createServer() {
     socket.on("join_room", (data) => {
       let roomName = "";
       let userName = "";
+      let roomPassword = "";
       if (typeof data === "object" && data !== null) {
         roomName = data.roomName;
         userName = data.userName;
+        roomPassword = data.roomPassword || "";
       } else {
         roomName = data;
       }
 
       if (!roomName) return;
+
+      // Oda şifresi kontrolü (varsa)
+      const existingPassword = roomPasswords[roomName];
+      if (existingPassword && existingPassword !== roomPassword) {
+        console.log(`[join_room] Yanlış şifre: ${roomName}`);
+        socket.emit("wrong_password", { message: "Yanlış oda şifresi." });
+        return;
+      }
 
       // Gerçek üye sayısını Socket.io'dan al (manuel sayaç yerine)
       const currentCount = io.sockets.adapter.rooms.get(roomName)?.size || 0;
@@ -145,6 +156,11 @@ function createServer() {
         // Odanın ilk adminini ata
         socket.data.isAdmin = true;
         roomAdmins[roomName] = socket.id;
+        // İlk katılan kişi şifre belirleyebilir
+        if (roomPassword && !roomPasswords[roomName]) {
+          roomPasswords[roomName] = roomPassword;
+          console.log(`[join_room] Oda şifresi belirlendi: ${roomName}`);
+        }
         console.log(`[join_room] Admin belirlendi: ${userName} (${socket.id})`);
       } else if (roomAdmins[roomName] === socket.id) {
         // Aynı socket geri döndü (reconnect)
@@ -176,7 +192,8 @@ function createServer() {
         adminName: adminName,
         isAdmin: socket.data.isAdmin,
         autoVoice: isSecondParticipant,
-        voiceMode: isSecondParticipant ? "receiver" : "waiting"
+        voiceMode: isSecondParticipant ? "receiver" : "waiting",
+        hasPassword: Boolean(roomPasswords[roomName])
       });
 
       if (roomPlaybackState[roomName]) {

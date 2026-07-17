@@ -250,6 +250,55 @@ header, .topbar {
   letter-spacing: 0.5px;
 }
 
+/* Share dropdown */
+.share-dropdown-container {
+  position: relative;
+}
+
+.share-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.share-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 6px;
+  min-width: 180px;
+  box-shadow: 0 10px 30px var(--card-shadow);
+  z-index: 50;
+  animation: fadeInUp 0.15s ease-out;
+}
+
+.share-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: 'Inter', sans-serif;
+  text-align: left;
+}
+
+.share-dropdown button:hover {
+  background: var(--pink-dim);
+  color: var(--pink-deep);
+}
+
 /* Header right group */
 .header-right {
   display: flex;
@@ -1162,6 +1211,24 @@ body.dark .bubble-row.me .bubble {
   fill: var(--send-icon);
 }
 
+/* Ad placeholder */
+.ad-placeholder {
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  min-height: 60px;
+}
+
+.ad-placeholder span {
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
 /* =============================================
    LOBBY
    ============================================= */
@@ -1290,6 +1357,10 @@ body.dark .lobby-btn.primary { color: #1A0410; }
   margin-top: 16px;
 }
 
+.lobby-password-section {
+  margin-top: 16px;
+}
+
 .enter-btn {
   width: 100%;
   background: linear-gradient(135deg, var(--pink), var(--pink-deep));
@@ -1343,6 +1414,113 @@ body.dark .enter-btn { color: #1A0410; }
   top: 16px;
   right: 16px;
   z-index: 999;
+}
+
+/* =============================================
+   KEYBOARD SHORTCUTS MODAL
+   ============================================= */
+.shortcuts-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.shortcuts-modal {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 24px;
+  min-width: 300px;
+  max-width: 360px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: scaleIn 0.15s ease-out;
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.shortcuts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.shortcuts-header h3 {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 20px;
+  letter-spacing: 1px;
+  color: var(--text);
+}
+
+.shortcuts-close {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.15s ease;
+}
+
+.shortcuts-close:hover {
+  background: var(--exit-bg);
+  border-color: var(--exit-border);
+  color: var(--exit-text);
+}
+
+.shortcuts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.shortcut-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--panel-2);
+  border-radius: 8px;
+}
+
+.shortcut-item kbd {
+  background: var(--input-bg);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-family: 'Inter', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 40px;
+  text-align: center;
+}
+
+.shortcut-item span {
+  font-size: 13px;
+  color: var(--text-dim);
 }
 
 /* =============================================

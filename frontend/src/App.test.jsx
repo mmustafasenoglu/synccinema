@@ -130,4 +130,78 @@ describe('App Component', () => {
 
     expect(voiceBtn).not.toBeDisabled();
   });
+
+  test('lobby shows room password field', async () => {
+    render(<App />);
+
+    const passInput = screen.getByPlaceholderText(/Şifreyi giriniz/i);
+    await userEvent.type(passInput, '12345');
+    await userEvent.click(screen.getByText(/Giriş Yap/i));
+
+    expect(screen.getByPlaceholderText(/Şifre belirle veya boş bırak/i)).toBeInTheDocument();
+  });
+
+  test('share button appears after joining room', async () => {
+    const { io } = await import('socket.io-client');
+    const socket = io();
+    
+    render(<App />);
+
+    const passInput = screen.getByPlaceholderText(/Şifreyi giriniz/i);
+    await userEvent.type(passInput, '12345');
+    await userEvent.click(screen.getByText(/Giriş Yap/i));
+    
+    const connectHandler = socket.on.mock.calls.find(call => call[0] === 'connect')[1];
+    act(() => connectHandler());
+        
+    const nameInput = screen.getByPlaceholderText(/örn. Mustafa/i);
+    await userEvent.type(nameInput, 'TestUser');
+    
+    await userEvent.click(screen.getByText(/Oda Oluştur/i));
+
+    const roomStatusHandler = socket.on.mock.calls.find(call => call[0] === 'room_status')[1];
+    act(() => {
+      roomStatusHandler({
+        userCount: 1,
+        users: [{ socketId: 'me', userName: 'TestUser' }],
+        isAdmin: true
+      });
+    });
+    
+    expect(screen.getByText(/Paylaş/i)).toBeInTheDocument();
+  });
+
+  test('keyboard shortcut modal opens with ? key', async () => {
+    const { io } = await import('socket.io-client');
+    const socket = io();
+    
+    render(<App />);
+
+    const passInput = screen.getByPlaceholderText(/Şifreyi giriniz/i);
+    await userEvent.type(passInput, '12345');
+    await userEvent.click(screen.getByText(/Giriş Yap/i));
+    
+    const connectHandler = socket.on.mock.calls.find(call => call[0] === 'connect')[1];
+    act(() => connectHandler());
+        
+    const nameInput = screen.getByPlaceholderText(/örn. Mustafa/i);
+    await userEvent.type(nameInput, 'TestUser');
+    
+    await userEvent.click(screen.getByText(/Oda Oluştur/i));
+
+    const roomStatusHandler = socket.on.mock.calls.find(call => call[0] === 'room_status')[1];
+    act(() => {
+      roomStatusHandler({
+        userCount: 1,
+        users: [{ socketId: 'me', userName: 'TestUser' }],
+        isAdmin: true
+      });
+    });
+    
+    await userEvent.keyboard('?');
+    
+    expect(screen.getByText(/Klavye Kısayolları/i)).toBeInTheDocument();
+    expect(screen.getByText(/Space/)).toBeInTheDocument();
+    expect(screen.getByText(/Oynat \/ Duraklat/)).toBeInTheDocument();
+  });
 });

@@ -194,11 +194,13 @@ export default function App() {
   const [joined, setJoined] = useState(Boolean(saved?.roomName && saved?.myName));
   const [roomName, setRoomName] = useState(saved?.roomName || "");
   const [myName, setMyName] = useState(saved?.myName || "");
+  const [roomPassword, setRoomPassword] = useState("");
   const [peerCount, setPeerCount] = useState(1);
   const [peerName, setPeerName] = useState("");
   const [systemNotice, setSystemNotice] = useState("");
   const [lobbyMode, setLobbyMode] = useState("select");
   const [copied, setCopied] = useState(false);
+  const [showShareMenu, setShowShareMenu] = useState(false);
   const [lobbyError, setLobbyError] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -250,6 +252,9 @@ export default function App() {
   // --- Mobile Chat ---
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  // --- Klavye Kısayolları ---
+  const [showShortcuts, setShowShortcuts] = useState(false);
 
   // Refs
   const socketRef = useRef(null);
@@ -363,6 +368,10 @@ export default function App() {
       setJoined(false);
       setRoomName("");
       saveSession(null);
+    });
+
+    socket.on("wrong_password", (data) => {
+      setLobbyError(data.message || "Yanlış oda şifresi.");
     });
 
     socket.on("webrtc_signal_received", (data) => {
@@ -932,6 +941,60 @@ export default function App() {
     }
   };
 
+  // --- Klavye Kısayolları ---
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+
+      switch (e.key) {
+        case " ":
+          e.preventDefault();
+          if (!joined || !videoSrc || !isAdmin) return;
+          const video = videoRef.current;
+          if (video) {
+            if (video.paused) video.play().catch(() => {});
+            else video.pause();
+          }
+          break;
+        case "f":
+        case "F":
+          e.preventDefault();
+          toggleFullscreen();
+          break;
+        case "m":
+        case "M":
+          e.preventDefault();
+          toggleMic();
+          break;
+        case "c":
+        case "C":
+          e.preventDefault();
+          if (subtitleTracks.length > 0) {
+            setShowTrackSelector(prev => !prev);
+          }
+          break;
+        case "Escape":
+          if (mobileChatOpen) {
+            e.preventDefault();
+            setMobileChatOpen(false);
+          }
+          if (showShortcuts) setShowShortcuts(false);
+          if (showSubtitleSettings) setShowSubtitleSettings(false);
+          if (showTrackSelector) setShowTrackSelector(false);
+          break;
+        case "?":
+          e.preventDefault();
+          setShowShortcuts(prev => !prev);
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [joined, videoSrc, isAdmin, mobileChatOpen, showShortcuts, showSubtitleSettings, showTrackSelector, subtitleTracks.length, toggleMic, toggleFullscreen]);
+
 
   // ---------------------------------------------------------------
   // HELPERS
@@ -958,13 +1021,13 @@ export default function App() {
     setLobbyError("");
     const code = String(Math.floor(10000 + Math.random() * 90000));
     setRoomName(code);
-    socketRef.current.emit("join_room", { roomName: code, userName: myName.trim() });
+    socketRef.current.emit("join_room", { roomName: code, userName: myName.trim(), roomPassword: roomPassword.trim() });
   };
 
   const handleJoinRoom = () => {
     if (!roomName.trim() || !myName.trim()) return;
     setLobbyError("");
-    socketRef.current.emit("join_room", { roomName: roomName.trim(), userName: myName.trim() });
+    socketRef.current.emit("join_room", { roomName: roomName.trim(), userName: myName.trim(), roomPassword: roomPassword.trim() });
   };
 
   const handleCopyCode = () => {
@@ -973,6 +1036,32 @@ export default function App() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
+  };
+
+  const handleShare = (platform) => {
+    const shareUrl = window.location.origin;
+    const shareText = `SyncCinema ile aynı anda film izleyelim! Oda kodu: ${roomName}`;
+    
+    switch (platform) {
+      case "whatsapp":
+        window.open(`https://wa.me/?text=${encodeURIComponent(shareText + "\n" + shareUrl)}`, "_blank");
+        break;
+      case "twitter":
+        window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`, "_blank");
+        break;
+      case "telegram":
+        window.open(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`, "_blank");
+        break;
+      case "copy":
+        navigator.clipboard.writeText(shareText + "\n" + shareUrl).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        });
+        break;
+      default:
+        break;
+    }
+    setShowShareMenu(false);
   };
 
   // ---------------------------------------------------------------
@@ -1264,7 +1353,7 @@ export default function App() {
     setIsAdmin(false); setFileMismatch(false); setPeerTimeDiff(null);
     setActiveCueText(""); setSubtitleSrc(null); setSubtitleTracks([]);
     setEmbeddedCues([]); setActiveEmbeddedTrack(null); setSubtitleExtracting(false);
-    setShowTrackSelector(false);
+    setShowTrackSelector(false); setRoomPassword("");
     saveSession(null);
   };
 
@@ -1373,6 +1462,17 @@ export default function App() {
             </button>
           </div>
 
+          <div className="lobby-password-section">
+            <label className="field-label">Oda Şifresi (Opsiyonel)</label>
+            <input
+              className="field-input"
+              type="password"
+              placeholder="Şifre belirle veya boş bırak"
+              value={roomPassword}
+              onChange={(e) => setRoomPassword(e.target.value)}
+            />
+          </div>
+
           {lobbyMode === "join" && (
             <div className="lobby-join-section">
               <label className="field-label" style={{ marginTop: "4px" }}>5 Haneli Oda Kodu</label>
@@ -1384,6 +1484,15 @@ export default function App() {
                   const val = e.target.value.replace(/\D/g, "");
                   if (val.length <= 5) setRoomName(val);
                 }}
+                onKeyDown={(e) => e.key === "Enter" && roomName.length === 5 && handleJoinRoom()}
+              />
+              <label className="field-label">Oda Şifresi (Varsa)</label>
+              <input
+                className="field-input"
+                type="password"
+                placeholder="Şifre varsa giriniz"
+                value={roomPassword}
+                onChange={(e) => setRoomPassword(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && roomName.length === 5 && handleJoinRoom()}
               />
               <button
@@ -1414,6 +1523,26 @@ export default function App() {
     <div className="app-shell">
       <audio ref={remoteAudioRef} autoPlay />
 
+      {/* Klavye Kısayolları Modal */}
+      {showShortcuts && (
+        <div className="shortcuts-overlay" onClick={() => setShowShortcuts(false)}>
+          <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="shortcuts-header">
+              <h3>Klavye Kısayolları</h3>
+              <button className="shortcuts-close" onClick={() => setShowShortcuts(false)}>✕</button>
+            </div>
+            <div className="shortcuts-list">
+              <div className="shortcut-item"><kbd>Space</kbd><span>Oynat / Duraklat</span></div>
+              <div className="shortcut-item"><kbd>F</kbd><span>Tam Ekran</span></div>
+              <div className="shortcut-item"><kbd>M</kbd><span>Mikrofon Aç/Kapat</span></div>
+              <div className="shortcut-item"><kbd>C</kbd><span>Altyazı Dil Seç</span></div>
+              <div className="shortcut-item"><kbd>Esc</kbd><span>Panelleri Kapat</span></div>
+              <div className="shortcut-item"><kbd>?</kbd><span>Bu Listeyi Göster</span></div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Mobile Chat Toggle */}
       <button
         className="chat-toggle-btn"
@@ -1442,6 +1571,23 @@ export default function App() {
             <CopyIcon />
             {copied ? "Kopyalandı" : "Kopyala"}
           </button>
+          <div className="share-dropdown-container">
+            <button className="btn-ghost share-btn" onClick={() => setShowShareMenu(!showShareMenu)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+              </svg>
+              Paylaş
+            </button>
+            {showShareMenu && (
+              <div className="share-dropdown">
+                <button onClick={() => handleShare("whatsapp")}>📱 WhatsApp</button>
+                <button onClick={() => handleShare("twitter")}>🐦 Twitter / X</button>
+                <button onClick={() => handleShare("telegram")}>✈️ Telegram</button>
+                <button onClick={() => handleShare("copy")}>📋 Linki Kopyala</button>
+              </div>
+            )}
+          </div>
           {isAdmin && <div className="admin-badge">ADMİN</div>}
         </div>
 
@@ -1770,6 +1916,11 @@ export default function App() {
             <button className="chat-send-btn" onClick={handleSendMessage}>
               <SendIcon />
             </button>
+          </div>
+
+          {/* Reklam Alanı Yer Tutucu */}
+          <div className="ad-placeholder">
+            <span>Reklam Alanı</span>
           </div>
         </div>
       </div>
