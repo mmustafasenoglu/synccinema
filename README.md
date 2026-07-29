@@ -1,16 +1,14 @@
 # SyncCinema 🎬
 
-İki uzak kullanıcının kendi diskindeki aynı video dosyasını, tarayıcı üzerinden senkronize (eş zamanlı) şekilde izlemesini sağlayan uygulama. Video sunucudan akıtılmaz (streaming yok) — sadece play/pause/seek komutları ve chat mesajları WebSocket ile senkronize edilir.
+A real-time synchronized video watching application for two remote users. Both parties watch the **same local video file** through the browser — no video streaming involved. Only play/pause/seek commands and chat messages are synced via WebSocket.
 
-## Klasör Yapısı
+## Tech Stack
 
-```
-synccinema/
-├── backend/     -> Node.js + Express + Socket.io sunucusu (port 3001)
-└── frontend/    -> Vite + React arayüzü (port 5173)
-```
+- **Frontend:** React + Vite
+- **Backend:** Node.js + Express + Socket.io
+- **Sync:** WebSocket (real-time bidirectional)
 
-## Kurulum ve Çalıştırma
+## Getting Started
 
 ### 1) Backend
 
@@ -20,11 +18,9 @@ npm install
 npm start
 ```
 
-Terminalde `Sunucu 3001 portunda çalışıyor` yazısını görmelisin.
+Server runs on port 3001.
 
 ### 2) Frontend
-
-Yeni bir terminal sekmesi aç:
 
 ```bash
 cd frontend
@@ -32,31 +28,30 @@ npm install
 npm run dev
 ```
 
-Tarayıcıda `http://localhost:5173` adresi açılır.
+Open `http://localhost:5173` in your browser.
 
-## Nasıl Kullanılır
+## How It Works
 
-1. İki farklı tarayıcı sekmesinde (ya da iki farklı bilgisayarda) `http://localhost:5173` adresini aç.
-2. Her iki tarafta da aynı **Oda Adı**'nı gir (örn. `cuma-gecesi`), farklı isim gir ve "Odaya Katıl" butonuna bas.
-3. Her iki tarafta da bilgisayarınızdaki **aynı video dosyasını** seçin (dosya sunucuya yüklenmez, sadece yerel olarak `URL.createObjectURL` ile oynatılır).
-4. Bir tarafta play/pause/sarma yaptığında, diğer tarafta ~100-200ms gecikmeyle aynı aksiyon simüle edilir.
-5. Sağdaki panelden anlık mesajlaşabilirsiniz.
+1. Open `http://localhost:5173` in two different browser tabs (or two different machines).
+2. Enter the same **Room Name** (e.g. `movie-night`), use different display names, and click "Join Room".
+3. Select the **same video file** on both sides (the file is not uploaded to the server — it plays locally via `URL.createObjectURL`).
+4. When one side plays/pauses/seeks, the other side mirrors the action with ~100-200ms delay.
+5. Use the chat panel on the right for real-time messaging.
 
-## Uzak Erişim (İki Farklı Şehir/Ağdan Bağlanmak İçin)
+## Remote Access
 
-Backend'i `localhost:3001` yerine herkese açık bir adresten (örn. bir VPS, ngrok, Cloudflare Tunnel) yayınlaman gerekir. Bunu yaptıktan sonra:
+To connect from different networks, expose the backend via a VPS, ngrok, or Cloudflare Tunnel. Then update the `SOCKET_URL` constant in `frontend/src/App.jsx` to your server address.
 
-- `frontend/src/App.jsx` içindeki `SOCKET_URL` sabitini kendi sunucu adresinle güncelle.
-- Backend'de CORS zaten `origin: "*"` ile açık, ekstra bir işlem gerekmiyor (geliştirme ortamı için).
+CORS is configured with `origin: "*"` for development. Restrict this in production.
 
-## Sonsuz Döngü Koruması Nasıl Çalışıyor?
+## Infinite Loop Protection
 
-`isIncomingSignal` adlı bir `useRef` bayrağı kullanılıyor:
+An `isIncomingSignal` ref flag prevents feedback loops:
 
-- Sunucudan bir video aksiyonu geldiğinde bu bayrak `true` yapılır, video güncellenir, sonra 100ms sonra tekrar `false` yapılır.
-- Kullanıcının kendi tetiklediği `onPlay`/`onPause`/`onSeeked` eventlerinde, eğer bu bayrak `true` ise sunucuya emit yapılmaz. Böylece A → B → A şeklinde sonsuz bir sinyal döngüsü oluşmaz.
+- When a video action arrives from the server, the flag is set to `true`, the video updates, then resets after 100ms.
+- User-triggered `onPlay`/`onPause`/`onSeeked` events skip server emission when the flag is `true`.
 
-## Üretim İçin Notlar
+## Production Notes
 
-- Bu proje geliştirme/kişisel kullanım amaçlıdır. `cors: { origin: "*" }` ayarı gerçek bir üretim ortamında güvenlik açısından daraltılmalıdır.
-- Oda içindeki video dosyasının her iki tarafta da **bit bit aynı** olması gerekir (aynı encode, aynı süre), aksi halde zamanlama tam örtüşmeyebilir.
+- This project is for development/personal use. Restrict CORS `origin` in production.
+- Both sides must use the **exact same video file** (same encoding, same duration) for perfect sync.
