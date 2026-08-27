@@ -465,6 +465,32 @@ body.dark .icon-moon { display: none; }
   background: #000;
 }
 
+/* YouTube Player */
+.youtube-player-wrapper {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.youtube-player-wrapper iframe {
+  border: 0;
+}
+
+.youtube-input-section {
+  width: 100%;
+  padding: 0 10px;
+}
+
+.youtube-input-section input {
+  width: 100%;
+}
+
 /* =============================================
    PICKER CARD
    ============================================= */

@@ -33,6 +33,8 @@ function createServer() {
   const roomAdmins = {}; // Oda sahibini takip et (socket.id değil, userName olarak)
   const roomTimers = {}; // Oda zamanlayıcıları
   const roomPasswords = {}; // Oda şifreleri (opsiyonel)
+  const roomMediaType = {}; // roomName -> "local" | "youtube"
+  const roomYouTubeUrl = {}; // roomName -> YouTube video ID
   const ROOM_TIMEOUT_MS = 30 * 60 * 1000; // 30 dakika
   const RATE_LIMIT_WINDOW_MS = 1000; // 1 saniye
   const RATE_LIMIT_MAX = 15; // pencere başına maksimum event
@@ -66,6 +68,8 @@ function createServer() {
         delete roomUserCounts[roomName];
         delete roomAdmins[roomName];
         delete roomTimers[roomName];
+        delete roomMediaType[roomName];
+        delete roomYouTubeUrl[roomName];
         console.log(`[timer] Oda zaman aşımı ile silindi: ${roomName}`);
       }
     }, ROOM_TIMEOUT_MS);
@@ -103,10 +107,14 @@ function createServer() {
       let roomName = "";
       let userName = "";
       let roomPassword = "";
+      let mediaType = "local";
+      let youtubeUrl = "";
       if (typeof data === "object" && data !== null) {
         roomName = data.roomName;
         userName = data.userName;
         roomPassword = data.roomPassword || "";
+        mediaType = data.mediaType || "local";
+        youtubeUrl = data.youtubeUrl || "";
       } else {
         roomName = data;
       }
@@ -161,7 +169,14 @@ function createServer() {
           roomPasswords[roomName] = roomPassword;
           console.log(`[join_room] Oda şifresi belirlendi: ${roomName}`);
         }
-        console.log(`[join_room] Admin belirlendi: ${userName} (${socket.id})`);
+        // Media bilgisini kaydet
+        if (mediaType === "youtube" && youtubeUrl) {
+          roomMediaType[roomName] = "youtube";
+          roomYouTubeUrl[roomName] = youtubeUrl;
+        } else {
+          roomMediaType[roomName] = "local";
+        }
+        console.log(`[join_room] Admin belirlendi: ${userName} (${socket.id}), Media: ${roomMediaType[roomName]}`);
       } else if (roomAdmins[roomName] === socket.id) {
         // Aynı socket geri döndü (reconnect)
         socket.data.isAdmin = true;
@@ -193,11 +208,17 @@ function createServer() {
         isAdmin: socket.data.isAdmin,
         autoVoice: isSecondParticipant,
         voiceMode: isSecondParticipant ? "receiver" : "waiting",
-        hasPassword: Boolean(roomPasswords[roomName])
+        hasPassword: Boolean(roomPasswords[roomName]),
+        mediaType: roomMediaType[roomName] || "local",
+        youtubeUrl: roomYouTubeUrl[roomName] || ""
       });
 
       if (roomPlaybackState[roomName]) {
-        socket.emit("sync_response", roomPlaybackState[roomName]);
+        socket.emit("sync_response", {
+          ...roomPlaybackState[roomName],
+          mediaType: roomMediaType[roomName] || "local",
+          youtubeUrl: roomYouTubeUrl[roomName] || ""
+        });
       }
     });
 
@@ -217,9 +238,37 @@ function createServer() {
       roomPlaybackState[data.room] = {
         currentTime: data.currentTime,
         isPaused: data.action === "pause",
-        sentAt: Date.now()
+        sentAt: Date.now(),
+        mediaType: roomMediaType[data.room] || "local"
       };
       socket.to(data.room).emit("video_action_received", data);
+    });
+
+    socket.on("set_media", (data) => {
+      if (!data || !data.room) return;
+      if (socket.data.room !== data.room) return;
+
+      // Sadece admin media değiştirebilir
+      const adminId = roomAdmins[data.room];
+      if (socket.id !== adminId) {
+        console.log(`[set_media] Reddedildi - Admin değil: ${socket.data.userName}`);
+        return;
+      }
+
+      const mediaType = data.mediaType || "local";
+      const youtubeUrl = data.youtubeUrl || "";
+
+      roomMediaType[data.room] = mediaType;
+      roomYouTubeUrl[data.room] = youtubeUrl;
+
+      console.log(`[set_media] Admin ${socket.data.userName} media değiştirdi: ${mediaType}, URL: ${youtubeUrl || "yok"}`);
+
+      // Karşı tarafa bildir
+      socket.to(data.room).emit("media_changed", {
+        mediaType,
+        youtubeUrl,
+        adminName: socket.data.userName
+      });
     });
 
     socket.on("playback_sync", (data) => {

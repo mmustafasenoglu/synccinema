@@ -155,7 +155,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    document.body.classList.toggle("dark", theme === "dark");
+    if (document.body) document.body.classList.toggle("dark", theme === "dark");
     localStorage.setItem("synccinema_theme", theme);
   }, [theme]);
 
@@ -213,6 +213,17 @@ export default function App() {
   const [peerTimeDiff, setPeerTimeDiff] = useState(null);
   const [subtitleSrc, setSubtitleSrc] = useState(null);
   const [subtitleName, setSubtitleName] = useState("");
+
+  // --- YouTube ---
+  const [mediaType, setMediaType] = useState("local"); // "local" | "youtube"
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [youtubeVideoId, setYoutubeVideoId] = useState(null);
+  const [showYouTubeInput, setShowYouTubeInput] = useState(false);
+  const youtubePlayerRef = useRef(null);
+  const youtubeIframeRef = useRef(null);
+  const mediaTypeRef = useRef("local");
+  const youtubeVideoIdRef = useRef(null);
+  const youtubeCreatingRef = useRef(false);
 
   // --- Altyazı Ayarları ---
   const loadSubtitleSettings = () => {
@@ -284,6 +295,7 @@ export default function App() {
   const voiceAutoConfigRef = useRef(voiceAutoConfig);
   const cameraEnabledRef = useRef(false);
   const localVideoRef = useRef(null);
+  const lastInitTimeRef = useRef(0);
 
   // ---------------------------------------------------------------
   // SOCKET
@@ -331,6 +343,15 @@ export default function App() {
       updatePeerName(data.users);
       setIsAdmin(data.isAdmin || false);
       setVoiceAutoConfig({ autoVoice: Boolean(data.autoVoice), voiceMode: data.voiceMode || "waiting" });
+      // Media type güncelle
+      if (data.mediaType) {
+        setMediaType(data.mediaType);
+        mediaTypeRef.current = data.mediaType;
+        if (data.mediaType === "youtube" && data.youtubeUrl) {
+          setYoutubeVideoId(data.youtubeUrl);
+          setYoutubeUrl(data.youtubeUrl);
+        }
+      }
     });
 
     socket.on("user_joined", (data) => {
@@ -344,11 +365,21 @@ export default function App() {
       setPeerCount(data.userCount || 1);
       setSystemNotice(data.message);
       updatePeerName(data.users);
-      const video = videoRef.current;
-      if (video && !video.paused) {
-        isIncomingSignal.current = true;
-        video.pause();
-        setTimeout(() => { isIncomingSignal.current = false; }, 100);
+      if (mediaTypeRef.current === "youtube" && youtubePlayerRef.current) {
+        try {
+          if (ytSafe("pauseVideo")) {
+            isIncomingSignal.current = true;
+            ytSafe("pauseVideo");
+            setTimeout(() => { isIncomingSignal.current = false; }, 100);
+          }
+        } catch (_) {}
+      } else {
+        const video = videoRef.current;
+        if (video && !video.paused) {
+          isIncomingSignal.current = true;
+          video.pause();
+          setTimeout(() => { isIncomingSignal.current = false; }, 100);
+        }
       }
       setPeerTimeDiff(null);
       setPeerIsTyping(false);
@@ -381,6 +412,10 @@ export default function App() {
 
       if (sigType === "reset") {
         console.log("[WebRTC] Karşı taraf reset istedi, peer sıfırlanıyor...");
+        if (cameraTogglingRef.current) {
+          console.log("[WebRTC] Kamera toggle devam ediyor, reset atlanıyor");
+          return;
+        }
         destroyPeer();
         const currentInitiator = voiceAutoConfigRef.current.voiceMode === "initiator";
         initWebRTC(currentInitiator, null, cameraEnabledRef.current);
@@ -412,7 +447,32 @@ export default function App() {
     });
 
     socket.on("video_action_received", (data) => {
+      const currentMediaType = mediaTypeRef.current;
       const video = videoRef.current;
+      const ytPlayer = youtubePlayerRef.current;
+
+      if (currentMediaType === "youtube") {
+        if (!ytPlayer) return;
+        isIncomingSignal.current = true;
+        const latency = (Date.now() - (data.sentAt || Date.now())) / 1000;
+
+        if (data.action === "play") {
+          let t = data.currentTime + latency;
+          ytSafe("seekTo", t, true);
+          ytSafe("playVideo");
+        } else if (data.action === "pause") {
+          ytSafe("seekTo", data.currentTime, true);
+          ytSafe("pauseVideo");
+        } else if (data.action === "seek") {
+          let t = data.currentTime + latency;
+          ytSafe("seekTo", t, true);
+        }
+
+        triggerSyncFlash();
+        setTimeout(() => { isIncomingSignal.current = false; }, 200);
+        return;
+      }
+
       if (!video) return;
       isIncomingSignal.current = true;
       const latency = (Date.now() - (data.sentAt || Date.now())) / 1000;
@@ -447,6 +507,25 @@ export default function App() {
     });
 
     socket.on("playback_sync_received", (data) => {
+      const currentMediaType = mediaTypeRef.current;
+
+      if (currentMediaType === "youtube") {
+        const ytPlayer = youtubePlayerRef.current;
+        if (!ytPlayer) return;
+        const latency = (Date.now() - (data.sentAt || Date.now())) / 1000;
+        const peerRealTime = data.currentTime + latency;
+        const currentTime = ytSafe("getCurrentTime") || 0;
+        const diff = currentTime - peerRealTime;
+        const abs = Math.abs(diff);
+        setPeerTimeDiff(diff);
+        if (abs > 2.5) {
+          isIncomingSignal.current = true;
+          ytSafe("seekTo", peerRealTime, true);
+          setTimeout(() => { isIncomingSignal.current = false; }, 200);
+        }
+        return;
+      }
+
       const video = videoRef.current;
       if (!video || video.paused) return;
       const latency = (Date.now() - (data.sentAt || Date.now())) / 1000;
@@ -467,6 +546,32 @@ export default function App() {
     });
 
     socket.on("sync_response", (data) => {
+      // Media type güncelle
+      if (data.mediaType) {
+        setMediaType(data.mediaType);
+        mediaTypeRef.current = data.mediaType;
+        if (data.mediaType === "youtube" && data.youtubeUrl) {
+          setYoutubeVideoId(data.youtubeUrl);
+          setYoutubeUrl(data.youtubeUrl);
+        }
+      }
+
+      const currentMediaType = data.mediaType || "local";
+
+      if (currentMediaType === "youtube") {
+        const ytPlayer = youtubePlayerRef.current;
+        if (!ytPlayer) return;
+        const latency = (Date.now() - (data.sentAt || Date.now())) / 1000;
+        let t = data.currentTime + latency;
+        isIncomingSignal.current = true;
+        ytSafe("seekTo", t, true);
+        if (!data.isPaused) ytSafe("playVideo");
+        else ytSafe("pauseVideo");
+        setTimeout(() => { isIncomingSignal.current = false; }, 200);
+        triggerSyncFlash();
+        return;
+      }
+
       const video = videoRef.current;
       if (!video || !data || !video.src) return;
       const latency = (Date.now() - (data.sentAt || Date.now())) / 1000;
@@ -478,6 +583,19 @@ export default function App() {
       else video.pause();
       setTimeout(() => { isIncomingSignal.current = false; }, 100);
       triggerSyncFlash();
+    });
+
+    socket.on("media_changed", (data) => {
+      setMediaType(data.mediaType);
+      mediaTypeRef.current = data.mediaType;
+      if (data.mediaType === "youtube" && data.youtubeUrl) {
+        setYoutubeVideoId(data.youtubeUrl);
+        setYoutubeUrl(data.youtubeUrl);
+      } else {
+        setYoutubeVideoId(null);
+        setYoutubeUrl("");
+      }
+      setSystemNotice(`${data.adminName} medya kaynağını değiştirdi: ${data.mediaType === "youtube" ? "YouTube" : "Yerel Video"}`);
     });
 
     socket.on("file_info_received", (data) => {
@@ -517,6 +635,105 @@ export default function App() {
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
   useEffect(() => { voiceAutoConfigRef.current = voiceAutoConfig; }, [voiceAutoConfig]);
   useEffect(() => { cameraEnabledRef.current = cameraEnabled; }, [cameraEnabled]);
+  useEffect(() => { mediaTypeRef.current = mediaType; }, [mediaType]);
+  useEffect(() => { youtubeVideoIdRef.current = youtubeVideoId; }, [youtubeVideoId]);
+
+  // YouTube IFrame API yükleme
+  useEffect(() => {
+    // YouTube API zaten yüklüyse atla
+    if (window.YT && window.YT.Player) return;
+
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    const firstScriptTag = document.getElementsByTagName("script")[0];
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+  }, []);
+
+  // YouTube video ID değiştiğinde player'ı yeniden oluştur
+  useEffect(() => {
+    if (!youtubeVideoId || mediaType !== "youtube") {
+      // Player'ı temizle
+      if (youtubePlayerRef.current) {
+        try { youtubePlayerRef.current.destroy(); } catch (_) {}
+        youtubePlayerRef.current = null;
+      }
+      youtubeCreatingRef.current = false;
+      return;
+    }
+
+    // Zaten aynı videoId ile oluşturuluyorsa atla
+    if (youtubeCreatingRef.current && youtubePlayerRef.current) return;
+
+    // YouTube API henüz yüklenmediyse bekle
+    if (!window.YT || !window.YT.Player) {
+      let cancelled = false;
+      const checkInterval = setInterval(() => {
+        if (cancelled) { clearInterval(checkInterval); return; }
+        if (window.YT && window.YT.Player) {
+          clearInterval(checkInterval);
+          if (!cancelled) createYouTubePlayer();
+        }
+      }, 100);
+      return () => { cancelled = true; clearInterval(checkInterval); };
+    }
+
+    createYouTubePlayer();
+  }, [youtubeVideoId, mediaType]);
+
+  const createYouTubePlayer = () => {
+    const vid = youtubeVideoIdRef.current;
+    if (!vid || mediaTypeRef.current !== "youtube") return;
+    if (youtubeCreatingRef.current) return;
+
+    const container = document.getElementById("youtube-player-container");
+    if (!container || !window.YT || !window.YT.Player) return;
+
+    // Eski player'ı temizle
+    if (youtubePlayerRef.current) {
+      try { youtubePlayerRef.current.destroy(); } catch (_) {}
+      youtubePlayerRef.current = null;
+    }
+
+    // Container'ı temizle (eski iframe'leri kaldır)
+    container.innerHTML = "";
+
+    youtubeCreatingRef.current = true;
+
+    youtubePlayerRef.current = new window.YT.Player("youtube-player-container", {
+      videoId: vid,
+      playerVars: {
+        autoplay: 0,
+        controls: 1,
+        enablejsapi: 1,
+        rel: 0,
+        modestbranding: 1
+      },
+      events: {
+        onReady: (event) => {
+          console.log("[YouTube] Player hazır, videoId:", vid);
+          youtubeCreatingRef.current = false;
+        },
+        onStateChange: (event) => {
+          if (!isAdminRef.current) return;
+          if (isIncomingSignal.current) return;
+
+          const state = event.data;
+          if (state === window.YT.PlayerState.PLAYING) {
+            emitVideoAction("play");
+          } else if (state === window.YT.PlayerState.PAUSED) {
+            emitVideoAction("pause");
+          }
+        }
+      }
+    });
+  };
+
+  // YouTube player için güvenli method çağrısı
+  const ytSafe = (method, ...args) => {
+    const p = youtubePlayerRef.current;
+    if (!p || typeof p[method] !== "function") return null;
+    try { return p[method](...args); } catch (_) { return null; }
+  };
 
   useEffect(() => {
     if (isAuthenticated && joined && roomName && myName) saveSession({ roomName, myName });
@@ -545,19 +762,30 @@ export default function App() {
   }, [lobbyError]);
 
   useEffect(() => {
-    if (!joined || !videoSrc || !isAdmin) return;
+    if (!joined || !isAdmin) return;
     const interval = setInterval(() => {
-      const video = videoRef.current;
-      if (video && !video.paused && socketRef.current) {
-        socketRef.current.emit("playback_sync", {
-          room: roomName.trim(),
-          currentTime: video.currentTime,
-          sentAt: Date.now()
-        });
+      if (socketRef.current) {
+        if (mediaType === "youtube" && youtubePlayerRef.current) {
+          const currentTime = ytSafe("getCurrentTime") || 0;
+          socketRef.current.emit("playback_sync", {
+            room: roomName.trim(),
+            currentTime,
+            sentAt: Date.now()
+          });
+        } else if (mediaType === "local" && videoSrc) {
+          const video = videoRef.current;
+          if (video && !video.paused) {
+            socketRef.current.emit("playback_sync", {
+              room: roomName.trim(),
+              currentTime: video.currentTime,
+              sentAt: Date.now()
+            });
+          }
+        }
       }
     }, SYNC_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [joined, videoSrc, roomName, isAdmin]);
+  }, [joined, videoSrc, roomName, isAdmin, mediaType, youtubeVideoId]);
 
   useEffect(() => {
     if (!videoSrc || !videoRef.current) return;
@@ -722,6 +950,14 @@ export default function App() {
   };
 
   const initWebRTC = (initiator, initialSignal = null, sendVideo = false, skipDestroy = false) => {
+    // Debounce: 500ms içinde tekrar çağırlırsa atla
+    const now = Date.now();
+    if (now - lastInitTimeRef.current < 500) {
+      console.log(`[WebRTC] Debounce: son init'den ${(now - lastInitTimeRef.current)}ms geçti, atlanıyor`);
+      return;
+    }
+    lastInitTimeRef.current = now;
+
     if (!skipDestroy) {
       destroyPeer();
     }
@@ -881,18 +1117,12 @@ export default function App() {
         }
         setCameraEnabled(false);
 
-        // Karşı tarafa reset sinyali gönder: her iki taraf peer'ı yeniden kursun
+        // Peer'ı yeniden kur (sadece ses ile)
         if (peerCount > 1 && socketRef.current) {
-          console.log("[WebRTC] Reset sinyali gönderiliyor (kamera kapatma)");
-          socketRef.current.emit("webrtc_signal", {
-            room: roomNameRef.current.trim(),
-            signal: { type: "reset" }
-          });
+          console.log("[WebRTC] Peer yeniden kuruluyor (kamera kapatıldı)");
           const currentInitiator = voiceAutoConfigRef.current.voiceMode === "initiator";
-          setTimeout(() => {
-            destroyPeer();
-            initWebRTC(currentInitiator, null, false);
-          }, 150);
+          destroyPeer();
+          initWebRTC(currentInitiator, null, false);
         }
       } else {
         // Kamerayı aç
@@ -918,18 +1148,12 @@ export default function App() {
           setCameraEnabled(true);
         }
 
-        // Her iki tarafı reset sinyali ile yeniden bağla (video dahil)
+        // Peer'ı yeniden kur (video ile)
         if (peerCount > 1 && socketRef.current) {
-          console.log("[WebRTC] Reset sinyali gönderiliyor (kamera açma)");
-          socketRef.current.emit("webrtc_signal", {
-            room: roomNameRef.current.trim(),
-            signal: { type: "reset" }
-          });
+          console.log("[WebRTC] Peer yeniden kuruluyor (kamera açıldı)");
           const currentInitiator = voiceAutoConfigRef.current.voiceMode === "initiator";
-          setTimeout(() => {
-            destroyPeer();
-            initWebRTC(currentInitiator, null, true);
-          }, 150);
+          destroyPeer();
+          initWebRTC(currentInitiator, null, true);
         }
       }
     } catch (err) {
@@ -949,11 +1173,20 @@ export default function App() {
       switch (e.key) {
         case " ":
           e.preventDefault();
-          if (!joined || !videoSrc || !isAdmin) return;
-          const video = videoRef.current;
-          if (video) {
-            if (video.paused) video.play().catch(() => {});
-            else video.pause();
+          if (!joined || !isAdmin) return;
+          if (mediaTypeRef.current === "youtube" && youtubePlayerRef.current) {
+            const state = ytSafe("getPlayerState");
+            if (state === 1) { // PLAYING
+              ytSafe("pauseVideo");
+            } else {
+              ytSafe("playVideo");
+            }
+          } else if (videoSrc) {
+            const video = videoRef.current;
+            if (video) {
+              if (video.paused) video.play().catch(() => {});
+              else video.pause();
+            }
           }
           break;
         case "f":
@@ -1016,6 +1249,51 @@ export default function App() {
   // ---------------------------------------------------------------
   // ODA
   // ---------------------------------------------------------------
+  const extractYouTubeId = (url) => {
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([^&?#]+)/,
+      /^([a-zA-Z0-9_-]{11})$/
+    ];
+    for (const p of patterns) {
+      const m = url.match(p);
+      if (m) return m[1];
+    }
+    return null;
+  };
+
+  const handleSetYouTube = () => {
+    const id = extractYouTubeId(youtubeUrl);
+    if (!id) {
+      setSystemNotice("⚠️ Geçersiz YouTube URL'si. Lütfen doğru bir link girin.");
+      return;
+    }
+    setYoutubeVideoId(id);
+    setMediaType("youtube");
+    setShowYouTubeInput(false);
+    // Karşı tarafa bildir
+    if (socketRef.current && isAdmin) {
+      socketRef.current.emit("set_media", {
+        room: roomName.trim(),
+        mediaType: "youtube",
+        youtubeUrl: id
+      });
+    }
+  };
+
+  const handleSwitchToLocal = () => {
+    setMediaType("local");
+    setYoutubeVideoId(null);
+    setYoutubeUrl("");
+    // Karşı tarafa bildir
+    if (socketRef.current && isAdmin) {
+      socketRef.current.emit("set_media", {
+        room: roomName.trim(),
+        mediaType: "local",
+        youtubeUrl: ""
+      });
+    }
+  };
+
   const handleCreateRoom = () => {
     if (!myName.trim()) return;
     setLobbyError("");
@@ -1285,12 +1563,22 @@ export default function App() {
   // ---------------------------------------------------------------
   const emitVideoAction = useCallback((action) => {
     if (isIncomingSignal.current || !isAdmin) return;
+
+    if (mediaTypeRef.current === "youtube" && youtubePlayerRef.current) {
+      const currentTime = ytSafe("getCurrentTime") || 0;
+      if (!socketRef.current) return;
+      socketRef.current.emit("video_action", {
+        room: roomName.trim(), action, currentTime, sentAt: Date.now(),
+      });
+      return;
+    }
+
     const video = videoRef.current;
     if (!video || !socketRef.current) return;
     socketRef.current.emit("video_action", {
       room: roomName.trim(), action, currentTime: video.currentTime, sentAt: Date.now(),
     });
-  }, [roomName, isAdmin]);
+  }, [roomName, isAdmin, mediaType]);
 
   const handlePlay = () => {
     if (!isAdmin) {
@@ -1354,6 +1642,8 @@ export default function App() {
     setActiveCueText(""); setSubtitleSrc(null); setSubtitleTracks([]);
     setEmbeddedCues([]); setActiveEmbeddedTrack(null); setSubtitleExtracting(false);
     setShowTrackSelector(false); setRoomPassword("");
+    setMediaType("local"); setYoutubeUrl(""); setYoutubeVideoId(null); setShowYouTubeInput(false);
+    mediaTypeRef.current = "local";
     saveSession(null);
   };
 
@@ -1640,14 +1930,14 @@ export default function App() {
       <div className="main-layout">
 
         {/* ====== STAGE (video) ====== */}
-        <div className={`video-pane ${videoSrc ? "has-video" : ""}`}>
+        <div className={`video-pane ${(videoSrc || mediaType === "youtube") ? "has-video" : ""}`}>
           {fileMismatch && (
             <div className="file-mismatch-banner">
               ⚠️ Farklı video dosyası! Senkronizasyon çalışmayabilir.
             </div>
           )}
 
-          {!videoSrc ? (
+          {!videoSrc && mediaType !== "youtube" ? (
             <div className="picker-zone">
               <div className="picker-card">
                 {/* Clapper SVG — birebir mockup */}
@@ -1666,6 +1956,33 @@ export default function App() {
                   Video Seç
                 </button>
 
+                <div className="picker-divider">veya</div>
+
+                {/* YouTube seçeneği */}
+                {!showYouTubeInput ? (
+                  <button className="btn-secondary picker-btn-ghost" onClick={() => setShowYouTubeInput(true)}>
+                    🎬 YouTube'dan İzle
+                  </button>
+                ) : (
+                  <div className="youtube-input-section">
+                    <input
+                      className="field-input"
+                      placeholder="YouTube linkini yapıştırın"
+                      value={youtubeUrl}
+                      onChange={(e) => setYoutubeUrl(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSetYouTube()}
+                    />
+                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      <button className="btn-primary picker-btn" onClick={handleSetYouTube} style={{ flex: 1 }}>
+                        İzle
+                      </button>
+                      <button className="btn-secondary picker-btn-ghost" onClick={() => { setShowYouTubeInput(false); setYoutubeUrl(""); }} style={{ flex: 1 }}>
+                        İptal
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="picker-divider">opsiyonel</div>
 
                 <input ref={subtitleFileInputRef} type="file" accept=".srt,.vtt,.sub" onChange={handleSubtitleSelect} style={{ display: "none" }} />
@@ -1680,6 +1997,42 @@ export default function App() {
                 )}
               </div>
             </div>
+          ) : mediaType === "youtube" && youtubeVideoId ? (
+            <>
+              <div className="youtube-player-wrapper" style={{ position: "relative", width: "100%", height: "100%" }}>
+                <div id="youtube-player-container" ref={youtubeIframeRef} style={{ width: "100%", height: "100%" }} />
+              </div>
+
+              {!isAdmin && peerCount > 1 && (
+                <div className="admin-only-banner">⚠️ Sadece oda sahibi videoyu kontrol edebilir</div>
+              )}
+
+              <div className={`sync-flash ${showSyncFlash ? "show" : ""}`}>
+                <span className="pulse-dot" />
+                Senkronize edildi
+              </div>
+
+              {flyingEmojis.map((e) => (
+                <div key={e.id} className="flying-emoji" style={{ left: `${e.x}%` }}>{e.emoji}</div>
+              ))}
+
+              {peerCount > 1 && peerTimeDiff !== null && (
+                <div className={`sync-status ${getSyncStatusColor()}`}>
+                  ⏱ Fark: {Math.abs(peerTimeDiff).toFixed(2)} sn
+                  {Math.abs(peerTimeDiff) < 0.2 ? " ✓" : ""}
+                </div>
+              )}
+
+              {isAdmin && (
+                <button
+                  className="btn-secondary"
+                  onClick={handleSwitchToLocal}
+                  style={{ position: "absolute", top: 10, right: 10, zIndex: 10, fontSize: 12, padding: "4px 8px" }}
+                >
+                  Yerel Videoya Geç
+                </button>
+              )}
+            </>
           ) : (
             <>
               <video
@@ -1864,7 +2217,7 @@ export default function App() {
           )}
 
           {/* Reactions */}
-          {videoSrc && (
+          {(videoSrc || mediaType === "youtube") && (
             <div className="reaction-btn-bar">
               {REACTIONS.map((emoji) => (
                 <button key={emoji} className="reaction-btn" onClick={() => handleReaction(emoji)}>{emoji}</button>
