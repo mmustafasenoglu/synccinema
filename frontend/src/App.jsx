@@ -194,6 +194,105 @@ export default function App() {
   const [joined, setJoined] = useState(Boolean(saved?.roomName && saved?.myName));
   const [roomName, setRoomName] = useState(saved?.roomName || "");
   const [myName, setMyName] = useState(saved?.myName || "");
+  // Session persistency (localStorage)
+
+  const SAVE_DELAY = 500;
+
+  let saveTimeout = null;
+
+
+
+  const loadSession = () => {
+
+    try {
+
+      const data = localStorage.getItem("synccinema_session");
+
+      if (data) {
+
+        const session = JSON.parse(data);
+
+        if (session.roomName) setRoomName(session.roomName);
+
+        if (session.myName) setMyName(session.myName);
+
+        if (session.theme !== undefined) setTheme(session.theme);
+
+        if (session.mediaType !== undefined) setMediaType(session.mediaType);
+
+        if (session.youtubeUrl !== undefined) setYoutubeUrl(session.youtubeUrl);
+
+        if (session.cameraEnabled !== undefined) setCameraEnabled(session.cameraEnabled);
+
+        if (session.micEnabled !== undefined) setMicEnabled(session.micEnabled);
+
+        if (session.subtitleSettings !== undefined) setSubtitleSettings(session.subtitleSettings);
+
+        console.log("[WebRTC] Session yüklendi:", session);
+
+      } catch (e) {
+
+        console.warn("[WebRTC] Session yükleme hatası", e);
+
+      }
+
+    } catch (e) {
+
+    } 
+
+  };
+
+
+
+  const saveSession = () => {
+
+    clearTimeout(saveTimeout);
+
+    saveTimeout = setTimeout(() => {
+
+      try {
+
+        const data = {
+
+          roomName,
+
+          myName,
+
+          theme: theme,
+
+          mediaType,
+
+          youtubeUrl,
+
+          cameraEnabled,
+
+          micEnabled,
+
+          subtitleSettings
+
+        };
+
+        localStorage.setItem("synccinema_session", JSON.stringify(data));
+
+        console.log("[WebRTC] Session kaydedildi:", data);
+
+      } catch (e) {
+
+        console.warn("[WebRTC] Session kaydetme hatası", e);
+
+      };
+
+    }, SAVE_DELAY);
+
+  };
+
+
+
+  useEffect(() => {
+
+    loadSession();
+
+  }, []);
   const [roomPassword, setRoomPassword] = useState("");
   const [peerCount, setPeerCount] = useState(1);
   const [peerName, setPeerName] = useState("");
@@ -926,7 +1025,7 @@ export default function App() {
     } else {
       setLocalVideoStream(null);
     }
-  }, [cameraEnabled, voiceConnected]);
+  }, [cameraEnabled, voiceConnected, turnIceServers]);
 
   const iceServers = [
     { urls: "stun:stun.l.google.com:19302" },
@@ -934,7 +1033,21 @@ export default function App() {
     { urls: "stun:stun2.l.google.com:19302" },
     { urls: "stun:stun3.l.google.com:19302" },
     { urls: "stun:stun4.l.google.com:19302" },
+    ...turnIceServers,
   ];
+
+  const fetchTurnCredentials = async () => {
+    try {
+      const response = await fetch("/api/turn-credentials", { credentials: "omit" });
+      const data = await response.json();
+      if (data && data.iceServers && data.iceServers.length > 0) {
+        setTurnIceServers(data.iceServers);
+        console.log("[WebRTC] TURN credentials loaded:", data.iceServers.length, "server(s)");
+      }
+    } catch (error) {
+      console.warn("[WebRTC] TURN credentials could not be loaded", error);
+    }
+  };
 
   const destroyPeer = () => {
     if (peerRef.current) {
@@ -949,7 +1062,7 @@ export default function App() {
     initWebRTCRef.current = false;
   };
 
-  const initWebRTC = (initiator, initialSignal = null, sendVideo = false, skipDestroy = false) => {
+  const initWebRTC = async (initiator, initialSignal = null, sendVideo = false, skipDestroy = false) => {
     // Debounce: 500ms içinde tekrar çağırlırsa atla
     const now = Date.now();
     if (now - lastInitTimeRef.current < 500) {
@@ -957,6 +1070,16 @@ export default function App() {
       return;
     }
     lastInitTimeRef.current = now;
+
+    if (!skipDestroy) {
+      destroyPeer();
+    }
+    const generation = ++initWebRTCGenerationRef.current;
+    initWebRTCRef.current = true;
+    console.log(`[WebRTC] Başlatılıyor... initiator: ${initiator}, video: ${sendVideo}, signal: ${initialSignal?.type || 'yok'}, generation: ${generation}, skipDestroy: ${skipDestroy}`);
+
+    // TURN credentials'ını fetch et (STUN yedek olarak bırakılacak)
+    await fetchTurnCredentials();
 
     if (!skipDestroy) {
       destroyPeer();

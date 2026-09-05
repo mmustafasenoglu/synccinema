@@ -9,16 +9,23 @@ const cors = require("cors");
 const { Server } = require("socket.io");
 
 function createServer() {
-  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "*";
+  const ALLOWED_ORIGINS = ["https://cinema.algoforge.com.tr"];
 
   const app = express();
-  app.use(cors({ origin: ALLOWED_ORIGIN }));
+  app.use(cors({ origin: (origin, callback) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) callback(null, true);
+    else callback(new Error("Not allowed by CORS"));
+  }
+}))
 
   const httpServer = http.createServer(app);
 
   const io = new Server(httpServer, {
     cors: {
-      origin: ALLOWED_ORIGIN,
+      origin: (origin, callback) => {
+        if (!origin || ALLOWED_ORIGINS.includes(origin)) callback(null, true);
+        else callback(new Error("Not allowed by CORS"));
+      },
       methods: ["GET", "POST"],
     },
   });
@@ -419,3 +426,38 @@ function createServer() {
 }
 
 module.exports = { createServer };
+
+// TURN credentials endpoint
+app.get("/api/turn-credentials", async (req, res) => {
+  try {
+    // Cloudflare TURN API'sine istek at
+    const cfToken = process.env.CLOUDFLARE_TURN_TOKEN;
+    const zoneId = process.env.CLOUDFLARE_ZONE_ID;
+    const keyId = "1"; // TURN key ID
+    
+    const credResponse = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate`, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${cfToken}`
+      }
+    });
+    
+    const credData = await credResponse.json();
+    
+    // TURN server bilgilerini formatla
+    const iceServers = [
+      { urls: 'stun:stun.l.google.com:19302' }, // STUN yedek
+      {
+        urls: 'turn:turn.cloudflare.com:3478',
+        username: credData.username,
+        credential: credData.credential
+      }
+    ];
+    
+    res.json({ iceServers });
+  } catch (error) {
+    console.error("TURN credentials error:", error);
+    // Fallback to STUN only
+    res.json({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+  }
+});

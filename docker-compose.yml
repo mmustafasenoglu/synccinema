@@ -9,6 +9,8 @@ services:
     restart: unless-stopped
     environment:
       - ALLOWED_ORIGIN=* # In production, set this to your frontend URL
+      - CLOUDFLARE_TURN_TOKEN=${CLOUDFLARE_TURN_TOKEN}
+      - CLOUDFLARE_ZONE_ID=${CLOUDFLARE_ZONE_ID}
       # - NODE_ENV=production
 
   frontend:
