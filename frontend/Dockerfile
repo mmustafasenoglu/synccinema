@@ -11,8 +11,6 @@ COPY . .
 # Set a placeholder that we might override, though vite build doesn't inherently need it unless embedded statically.
 ARG VITE_SOCKET_URL
 ENV VITE_SOCKET_URL=$VITE_SOCKET_URL
-ARG VITE_AUTH_PASS
-ENV VITE_AUTH_PASS=$VITE_AUTH_PASS
 
 RUN npm run build
 

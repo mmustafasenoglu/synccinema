@@ -9,11 +9,14 @@ const cors = require("cors");
 const { Server } = require("socket.io");
 
 function createServer() {
-  const ALLOWED_ORIGINS = ["https://cinema.algoforge.com.tr"];
+  const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "http://localhost:5173")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   const app = express();
   app.use(cors({ origin: (origin, callback) => {
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) callback(null, true);
+    if (!origin || ALLOWED_ORIGINS.includes(origin) || ALLOWED_ORIGINS.includes("*")) callback(null, true);
     else callback(new Error("Not allowed by CORS"));
   }
 }))
@@ -23,7 +26,7 @@ function createServer() {
   const io = new Server(httpServer, {
     cors: {
       origin: (origin, callback) => {
-        if (!origin || ALLOWED_ORIGINS.includes(origin)) callback(null, true);
+        if (!origin || ALLOWED_ORIGINS.includes(origin) || ALLOWED_ORIGINS.includes("*")) callback(null, true);
         else callback(new Error("Not allowed by CORS"));
       },
       methods: ["GET", "POST"],
@@ -384,6 +387,15 @@ function createServer() {
 
     socket.on("disconnect", () => {
       const room = socket.data.room;
+
+      // Rate-limit state'ini temizle (memory leak önleme)
+      const socketId = socket.id;
+      for (const key of Object.keys(socketRateLimits)) {
+        if (key.startsWith(socketId + ":")) {
+          delete socketRateLimits[key];
+        }
+      }
+
       if (room) {
         // disconnect sonrası socket zaten odadan çıktı, gerçek sayıyı al
         const remaining = io.sockets.adapter.rooms.get(room)?.size || 0;
@@ -422,42 +434,63 @@ function createServer() {
     });
   });
 
+  // --- SITE AUTH ENDPOINT ---
+  const SITE_PASSWORD = process.env.SITE_PASSWORD || "";
+  app.use(express.json());
+  if (SITE_PASSWORD) {
+    app.post("/api/auth", (req, res) => {
+      const { password } = req.body || {};
+      if (password === SITE_PASSWORD) {
+        res.json({ ok: true });
+      } else {
+        res.status(401).json({ ok: false, message: "Yanlış şifre." });
+      }
+    });
+  }
+
+  // --- TURN CREDENTIALS ENDPOINT ---
+  app.get("/api/turn-credentials", async (req, res) => {
+    try {
+      const cfToken = process.env.CLOUDFLARE_TURN_TOKEN;
+      const keyId = process.env.CLOUDFLARE_TURN_KEY_ID || "1";
+
+      if (!cfToken) {
+        console.warn("[TURN] CLOUDFLARE_TURN_TOKEN tanımlı değil, STUN-only mod");
+        return res.json({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+      }
+
+      const credResponse = await fetch(
+        `https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${cfToken}` },
+        }
+      );
+
+      if (!credResponse.ok) {
+        console.error(`[TURN] Cloudflare API hatası: ${credResponse.status}`);
+        return res.json({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+      }
+
+      const credData = await credResponse.json();
+
+      const iceServers = [
+        { urls: "stun:stun.l.google.com:19302" },
+        {
+          urls: "turn:turn.cloudflare.com:3478",
+          username: credData.username,
+          credential: credData.credential,
+        },
+      ];
+
+      res.json({ iceServers });
+    } catch (error) {
+      console.error("[TURN] Credentials hatası:", error);
+      res.json({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    }
+  });
+
   return { app, httpServer, io, roomUserCounts, roomPlaybackState };
 }
 
 module.exports = { createServer };
-
-// TURN credentials endpoint
-app.get("/api/turn-credentials", async (req, res) => {
-  try {
-    // Cloudflare TURN API'sine istek at
-    const cfToken = process.env.CLOUDFLARE_TURN_TOKEN;
-    const zoneId = process.env.CLOUDFLARE_ZONE_ID;
-    const keyId = "1"; // TURN key ID
-    
-    const credResponse = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate`, {
-      method: "GET",
-      headers: {
-        "Authorization": `Bearer ${cfToken}`
-      }
-    });
-    
-    const credData = await credResponse.json();
-    
-    // TURN server bilgilerini formatla
-    const iceServers = [
-      { urls: 'stun:stun.l.google.com:19302' }, // STUN yedek
-      {
-        urls: 'turn:turn.cloudflare.com:3478',
-        username: credData.username,
-        credential: credData.credential
-      }
-    ];
-    
-    res.json({ iceServers });
-  } catch (error) {
-    console.error("TURN credentials error:", error);
-    // Fallback to STUN only
-    res.json({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-  }
-});

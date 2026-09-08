@@ -8,10 +8,10 @@ services:
     container_name: synccinema_backend
     restart: unless-stopped
     environment:
-      - ALLOWED_ORIGIN=* # In production, set this to your frontend URL
-      - CLOUDFLARE_TURN_TOKEN=${CLOUDFLARE_TURN_TOKEN}
-      - CLOUDFLARE_ZONE_ID=${CLOUDFLARE_ZONE_ID}
-      # - NODE_ENV=production
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173}
+      - SITE_PASSWORD=${SITE_PASSWORD:-}
+      - CLOUDFLARE_TURN_TOKEN=${CLOUDFLARE_TURN_TOKEN:-}
+      - CLOUDFLARE_TURN_KEY_ID=${CLOUDFLARE_TURN_KEY_ID:-1}
 
   frontend:
     build:
@@ -20,7 +20,6 @@ services:
       args:
         # Nginx üzerinden proxy yaptığımız için Socket.io direkt aynı adrese (/) bağlanacak.
         - VITE_SOCKET_URL=/
-        - VITE_AUTH_PASS=${VITE_AUTH_PASS:-12345}
     container_name: synccinema_frontend
     restart: unless-stopped
     ports:

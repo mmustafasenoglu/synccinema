@@ -1,3 +1,4 @@
+const http = require("http");
 const { createServer } = require("./createServer");
 const { io: Client } = require("socket.io-client");
 
@@ -45,22 +46,22 @@ describe("SyncCinema Backend Tests", () => {
   test("video_action karşı tarafa iletilir", (done) => {
     const s1 = createClient();
     const s2 = createClient();
-    let ready = 0;
-    const check = () => { if (++ready === 2) join(); };
-    const join = () => {
+    let s2Ready = false;
+    s1.on("connect", () => {
       s1.emit("join_room", { roomName: "video-test", userName: "A" });
+    });
+    s2.on("connect", () => {
       setTimeout(() => {
         s2.emit("join_room", { roomName: "video-test", userName: "B" });
       }, 50);
-    };
-    s1.on("connect", check);
-    s2.on("connect", check);
-    let s2InRoom = false;
+    });
     s2.on("room_status", (data) => {
-      s2InRoom = true;
-      setTimeout(() => {
-        s1.emit("video_action", { room: "video-test", action: "play", currentTime: 10 });
-      }, 100);
+      if (data.userCount === 2 && !s2Ready) {
+        s2Ready = true;
+        setTimeout(() => {
+          s1.emit("video_action", { room: "video-test", action: "play", currentTime: 10 });
+        }, 200);
+      }
     });
     s2.on("video_action_received", (data) => {
       expect(data.action).toBe("play");
@@ -72,41 +73,49 @@ describe("SyncCinema Backend Tests", () => {
   test("mesaj karşı tarafa iletilir", (done) => {
     const s1 = createClient();
     const s2 = createClient();
-    let ready = 0;
-    const check = () => { if (++ready === 2) join(); };
-    const join = () => {
+    s1.on("connect", () => {
       s1.emit("join_room", { roomName: "chat-test", userName: "A" });
+    });
+    s2.on("connect", () => {
       setTimeout(() => s2.emit("join_room", { roomName: "chat-test", userName: "B" }), 50);
-    };
-    s1.on("connect", check);
-    s2.on("connect", check);
+    });
+    let s2Ready = false;
+    s2.on("room_status", (data) => {
+      if (data.userCount === 2 && !s2Ready) {
+        s2Ready = true;
+        setTimeout(() => {
+          s1.emit("send_message", { room: "chat-test", message: "Merhaba!", sender: "A" });
+        }, 200);
+      }
+    });
     s2.on("receive_message", (data) => {
       expect(data.message).toBe("Merhaba!");
       done();
     });
-    setTimeout(() => {
-      s1.emit("send_message", { room: "chat-test", message: "Merhaba!", sender: "A" });
-    }, 300);
   });
 
   test("webrtc_signal karşı tarafa iletilir", (done) => {
     const s1 = createClient();
     const s2 = createClient();
-    let ready = 0;
-    const check = () => { if (++ready === 2) join(); };
-    const join = () => {
+    let s2Ready = false;
+    s1.on("connect", () => {
       s1.emit("join_room", { roomName: "webrtc-test", userName: "A" });
+    });
+    s2.on("connect", () => {
       setTimeout(() => s2.emit("join_room", { roomName: "webrtc-test", userName: "B" }), 50);
-    };
-    s1.on("connect", check);
-    s2.on("connect", check);
+    });
+    s2.on("room_status", (data) => {
+      if (data.userCount === 2 && !s2Ready) {
+        s2Ready = true;
+        setTimeout(() => {
+          s1.emit("webrtc_signal", { room: "webrtc-test", signal: { type: "offer", sdp: "test" } });
+        }, 200);
+      }
+    });
     s2.on("webrtc_signal_received", (data) => {
       expect(data.signal).toEqual({ type: "offer", sdp: "test" });
       done();
     });
-    setTimeout(() => {
-      s1.emit("webrtc_signal", { room: "webrtc-test", signal: { type: "offer", sdp: "test" } });
-    }, 300);
   });
 
   test("kullanıcı ayrılınca user_left bildirimi gider", (done) => {
@@ -124,22 +133,22 @@ describe("SyncCinema Backend Tests", () => {
       expect(data.userCount).toBe(1);
       done();
     });
-    setTimeout(() => s1.disconnect(), 300);
+    s2.on("room_status", () => {
+      setTimeout(() => s1.disconnect(), 200);
+    });
   });
 
   test("şifreli oda - doğru şifre ile katılınır", (done) => {
     const s1 = createClient();
     const s2 = createClient();
-    let ready = 0;
-    const check = () => { if (++ready === 2) join(); };
-    const join = () => {
+    s1.on("connect", () => {
       s1.emit("join_room", { roomName: "pwd-test", userName: "A", roomPassword: "secret123" });
+    });
+    s2.on("connect", () => {
       setTimeout(() => {
         s2.emit("join_room", { roomName: "pwd-test", userName: "B", roomPassword: "secret123" });
       }, 100);
-    };
-    s1.on("connect", check);
-    s2.on("connect", check);
+    });
     s2.on("room_status", (data) => {
       expect(data.userCount).toBe(2);
       expect(data.hasPassword).toBe(true);
@@ -156,7 +165,7 @@ describe("SyncCinema Backend Tests", () => {
       s1.emit("join_room", { roomName: "pwd-wrong-test", userName: "A", roomPassword: "secret123" });
       setTimeout(() => {
         s2.emit("join_room", { roomName: "pwd-wrong-test", userName: "B", roomPassword: "wrongpassword" });
-      }, 100);
+      }, 150);
     };
     s1.on("connect", check);
     s2.on("connect", check);
@@ -169,16 +178,14 @@ describe("SyncCinema Backend Tests", () => {
   test("şifresiz oda - herkes katılabilir", (done) => {
     const s1 = createClient();
     const s2 = createClient();
-    let ready = 0;
-    const check = () => { if (++ready === 2) join(); };
-    const join = () => {
+    s1.on("connect", () => {
       s1.emit("join_room", { roomName: "no-pwd-test", userName: "A" });
+    });
+    s2.on("connect", () => {
       setTimeout(() => {
         s2.emit("join_room", { roomName: "no-pwd-test", userName: "B" });
       }, 100);
-    };
-    s1.on("connect", check);
-    s2.on("connect", check);
+    });
     s2.on("room_status", (data) => {
       expect(data.userCount).toBe(2);
       expect(data.hasPassword).toBe(false);
@@ -189,19 +196,25 @@ describe("SyncCinema Backend Tests", () => {
   test("admin değiştirme - admin ayrılınca diğer kullanıcıya geçer", (done) => {
     const s1 = createClient();
     const s2 = createClient();
-    let ready = 0;
-    const check = () => { if (++ready === 2) join(); };
-    const join = () => {
-      s1.emit("join_room", { roomName: "admin-test-1", userName: "A" });
-      setTimeout(() => s2.emit("join_room", { roomName: "admin-test-1", userName: "B" }), 50);
+    let joinedCount = 0;
+    const bothJoined = () => {
+      joinedCount++;
+      if (joinedCount === 2) {
+        setTimeout(() => s1.disconnect(), 200);
+      }
     };
-    s1.on("connect", check);
-    s2.on("connect", check);
+    s1.on("connect", () => {
+      s1.emit("join_room", { roomName: "admin-test-1", userName: "A" });
+    });
+    s2.on("connect", () => {
+      setTimeout(() => s2.emit("join_room", { roomName: "admin-test-1", userName: "B" }), 50);
+    });
+    s1.on("room_status", () => { bothJoined(); });
+    s2.on("room_status", () => { bothJoined(); });
     s2.on("admin_changed", (data) => {
       expect(data.adminName).toBe("B");
       done();
     });
-    setTimeout(() => s1.disconnect(), 300);
   });
 
   test("rate limiting - çok fazla mesaj gönderilince engellenir", (done) => {
@@ -253,5 +266,109 @@ describe("SyncCinema Backend Tests", () => {
       expect(data.message).toContain("dolu");
       done();
     });
+  });
+
+  // --- REGRESSION TESTS ---
+
+  test("TURN credentials endpoint - token yokken STUN-only döner", (done) => {
+    const req = http.request(
+      `http://localhost:${port}/api/turn-credentials`,
+      { method: "GET" },
+      (res) => {
+        let body = "";
+        res.on("data", (chunk) => { body += chunk; });
+        res.on("end", () => {
+          const data = JSON.parse(body);
+          expect(data.iceServers).toBeDefined();
+          expect(Array.isArray(data.iceServers)).toBe(true);
+          expect(data.iceServers.length).toBeGreaterThan(0);
+          expect(data.iceServers[0].urls).toContain("stun:");
+          done();
+        });
+      }
+    );
+    req.on("error", done);
+    req.end();
+  });
+
+  test("room authorization - video_action farklı odadan reddedilir", (done) => {
+    const s1 = createClient();
+    const s2 = createClient();
+    let joinedCount = 0;
+    const bothJoined = () => {
+      joinedCount++;
+      if (joinedCount === 2) {
+        let received = false;
+        s2.on("video_action_received", () => { received = true; });
+        setTimeout(() => {
+          // s1 auth-room-a'da, auth-room-b'ye video_action gönderiyor — reddedilmeli
+          s1.emit("video_action", { room: "auth-room-b", action: "play", currentTime: 0 });
+          setTimeout(() => {
+            expect(received).toBe(false);
+            done();
+          }, 300);
+        }, 100);
+      }
+    };
+    s1.on("connect", () => {
+      s1.emit("join_room", { roomName: "auth-room-a", userName: "A" });
+    });
+    s2.on("connect", () => {
+      setTimeout(() => {
+        s2.emit("join_room", { roomName: "auth-room-b", userName: "B" });
+      }, 50);
+    });
+    s1.on("room_status", () => { bothJoined(); });
+    s2.on("room_status", () => { bothJoined(); });
+  });
+
+  test("admin authorization - admin olmayan video_action gönderemez", (done) => {
+    const s1 = createClient();
+    const s2 = createClient();
+    let joinedCount = 0;
+    const bothJoined = () => {
+      joinedCount++;
+      if (joinedCount === 2) {
+        // Her iki kullanıcı da odaya katıldı, şimdi test et
+        let received = false;
+        s1.on("video_action_received", () => { received = true; });
+        setTimeout(() => {
+          // s2 (admin değil) video_action gönderiyor — reddedilmeli
+          s2.emit("video_action", { room: "admin-auth-test", action: "play", currentTime: 5 });
+          setTimeout(() => {
+            expect(received).toBe(false);
+            done();
+          }, 300);
+        }, 100);
+      }
+    };
+    s1.on("connect", () => {
+      s1.emit("join_room", { roomName: "admin-auth-test", userName: "A" });
+    });
+    s2.on("connect", () => {
+      setTimeout(() => {
+        s2.emit("join_room", { roomName: "admin-auth-test", userName: "B" });
+      }, 50);
+    });
+    s1.on("room_status", () => { bothJoined(); });
+    s2.on("room_status", () => { bothJoined(); });
+  });
+
+  test("health check endpoint çalışıyor", (done) => {
+    const req = http.request(
+      `http://localhost:${port}/`,
+      { method: "GET" },
+      (res) => {
+        let body = "";
+        res.on("data", (chunk) => { body += chunk; });
+        res.on("end", () => {
+          expect(res.statusCode).toBe(200);
+          expect(body).toContain("SyncCinema");
+          done();
+        });
+      }
+    );
+    req.on("error", done);
+    req.end();
   });
 });
