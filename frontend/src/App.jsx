@@ -412,6 +412,17 @@ export default function App() {
       const sigType = data.signal.type;
       console.log(`[WebRTC] Karşı taraftan sinyal alındı: ${sigType || (data.signal.candidate ? "candidate" : "unknown")}, mevcut peer: ${peerRef.current ? "var" : "yok"}`);
 
+      if (sigType === "camera_off") {
+        setRemoteVideoStream(null);
+        return;
+      }
+
+      if (data.signal.renegotiate) {
+        const peer = peerRef.current;
+        if (peer && !peer.destroyed) peer.signal(data.signal);
+        return;
+      }
+
       if (sigType === "reset") {
         console.log("[WebRTC] Karşı taraf reset istedi, peer sıfırlanıyor...");
         if (cameraTogglingRef.current) {
@@ -425,7 +436,12 @@ export default function App() {
       }
 
       if (sigType === "offer") {
-        console.log("[WebRTC] Offer alındı, yeniden bağlanılıyor...");
+        const peer = peerRef.current;
+        if (peer && !peer.destroyed && !peer.initiator) {
+          peer.signal(data.signal);
+          return;
+        }
+        console.log("[WebRTC] Offer alındı, bağlantı kuruluyor...");
         destroyPeer();
         initWebRTC(false, data.signal);
       } else if (sigType === "answer") {
@@ -1039,6 +1055,18 @@ export default function App() {
           setRemoteVideoStream(null);
         }
       });
+      peer.on("track", (track, remoteStream) => {
+        if (peerRef.current !== peer || track.kind !== "video") return;
+        const hideVideo = () => {
+          if (peerRef.current === peer) setRemoteVideoStream(null);
+        };
+        track.addEventListener("mute", hideVideo);
+        track.addEventListener("ended", hideVideo);
+        track.addEventListener("unmute", () => {
+          if (peerRef.current === peer) setRemoteVideoStream(remoteStream);
+        });
+        setRemoteVideoStream(remoteStream);
+      });
       peer.on("error", (err) => {
         if (peer._destroying) {
           console.log(`[WebRTC] Destroy sonrası hata (beklenen): ${err.message} (generation: ${generation})`);
@@ -1132,37 +1160,41 @@ export default function App() {
 
     try {
       if (cameraEnabled) {
-        // Kamerayı kapat: track'i tamamen durdur
+        // Video track'ini mevcut bağlantıdan çıkar; ses bağlantısı devam etsin.
         console.log("[WebRTC] Kamera kapatılıyor...");
         if (streamRef.current) {
           streamRef.current.getVideoTracks().forEach(t => {
+            if (peerRef.current && !peerRef.current.destroyed) {
+              peerRef.current.removeTrack(t, streamRef.current);
+            }
             t.stop();
             try { streamRef.current.removeTrack(t); } catch (_) {}
           });
         }
         setCameraEnabled(false);
-
-        // Peer'ı yeniden kur (sadece ses ile)
-        if (peerCount > 1 && socketRef.current) {
-          console.log("[WebRTC] Peer yeniden kuruluyor (kamera kapatıldı)");
-          const currentInitiator = voiceAutoConfigRef.current.voiceMode === "initiator";
-          destroyPeer();
-          initWebRTC(currentInitiator, null, false);
-        }
+        setLocalVideoStream(null);
+        socketRef.current?.emit("webrtc_signal", {
+          room: roomNameRef.current.trim(), signal: { type: "camera_off" },
+        });
       } else {
         // Kamerayı aç
         console.log("[WebRTC] Kamera açılıyor...");
 
         if (!streamRef.current) {
           // Hiç stream yok: ses + kamera
-          const newStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+          const newStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 24 } },
+          });
           console.log("[WebRTC] Yeni stream alındı (ses+kamera)");
           streamRef.current = newStream;
           setMicEnabled(true);
           setCameraEnabled(true);
         } else {
           // Ses stream'i var: video track ekle
-          const newVideoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          const newVideoStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 24 } },
+          });
           const newTrack = newVideoStream.getVideoTracks()[0];
           if (!newTrack) {
             console.warn("[WebRTC] Video track alınamadı");
@@ -1173,12 +1205,10 @@ export default function App() {
           setCameraEnabled(true);
         }
 
-        // Peer'ı yeniden kur (video ile)
-        if (peerCount > 1 && socketRef.current) {
-          console.log("[WebRTC] Peer yeniden kuruluyor (kamera açıldı)");
-          const currentInitiator = voiceAutoConfigRef.current.voiceMode === "initiator";
-          destroyPeer();
-          initWebRTC(currentInitiator, null, true);
+        setLocalVideoStream(streamRef.current);
+        if (peerRef.current && !peerRef.current.destroyed) {
+          const videoTrack = streamRef.current.getVideoTracks()[0];
+          if (videoTrack) peerRef.current.addTrack(videoTrack, streamRef.current);
         }
       }
     } catch (err) {
@@ -2228,7 +2258,7 @@ export default function App() {
                       ref={remoteVideoRef}
                       autoPlay
                       playsInline
-                      muted={false}
+                      muted
                     />
                   ) : (
                     <div className="video-circle-placeholder">
