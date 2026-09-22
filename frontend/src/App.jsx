@@ -7,6 +7,7 @@ import "./index.css";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:3001";
 const SYNC_INTERVAL_MS = 5000;
+const MAX_EMBEDDED_SUBTITLE_FILE_SIZE = 256 * 1024 * 1024;
 const REACTIONS = ["❤️", "😂", "😮", "👏", "😢", "🔥", "🎉", "👍"];
 
 // ---------------------------------------------------------------
@@ -26,6 +27,9 @@ function saveSession(data) {
     else localStorage.removeItem("synccinema_session");
   } catch {}
 }
+
+const authTokenKey = "synccinema_auth_token";
+const roomPasswordKey = (room) => `synccinema_room_password:${room}`;
 
 // ---------------------------------------------------------------
 // SVG ICONS — Birebir mockup'tan
@@ -187,7 +191,59 @@ export default function App() {
 
   // --- Site Şifresi ---
   const [authPass, setAuthPass] = useState("");
-  const [isAuthenticated, setIsAuthenticated] = useState(Boolean(saved?.roomName && saved?.myName));
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem(authTokenKey) || "");
+  const [authChecking, setAuthChecking] = useState(true);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/status", {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("Giriş durumu alınamadı");
+        return response.json();
+      })
+      .then((status) => {
+        if (cancelled) return;
+        if (!status.required || status.authenticated) {
+          setIsAuthenticated(true);
+        } else {
+          localStorage.removeItem(authTokenKey);
+          setAuthToken("");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAuthError("Sunucuya ulaşılamıyor. Lütfen tekrar dene.");
+      })
+      .finally(() => { if (!cancelled) setAuthChecking(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const submitAuth = async () => {
+    if (authBusy) return;
+    setAuthBusy(true);
+    setAuthError("");
+    try {
+      const response = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: authPass }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "Giriş yapılamadı.");
+      if (data.token) localStorage.setItem(authTokenKey, data.token);
+      setAuthToken(data.token || "");
+      setIsAuthenticated(true);
+      setAuthPass("");
+    } catch (error) {
+      setAuthError(error.message);
+    } finally {
+      setAuthBusy(false);
+    }
+  };
 
   // --- Bağlantı & Oda ---
   const [connected, setConnected] = useState(false);
@@ -195,7 +251,7 @@ export default function App() {
   const [roomName, setRoomName] = useState(saved?.roomName || "");
   const [myName, setMyName] = useState(saved?.myName || "");
 
-  const [roomPassword, setRoomPassword] = useState("");
+  const [roomPassword, setRoomPassword] = useState(() => saved?.roomName ? sessionStorage.getItem(roomPasswordKey(saved.roomName)) || "" : "");
   const [peerCount, setPeerCount] = useState(1);
   const [peerName, setPeerName] = useState("");
   const [systemNotice, setSystemNotice] = useState("");
@@ -303,7 +359,9 @@ export default function App() {
   // SOCKET
   // ---------------------------------------------------------------
   useEffect(() => {
+    if (!isAuthenticated) return;
     const socket = io(SOCKET_URL, {
+      auth: { siteToken: authToken },
       transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionAttempts: Infinity,
@@ -317,19 +375,21 @@ export default function App() {
       const savedRoom = roomNameRef.current || ss?.roomName;
       const savedName = myNameRef.current || ss?.myName;
       if (savedRoom && savedName) {
-        socket.emit("join_room", { roomName: savedRoom, userName: savedName.trim() });
-        socket.emit("request_sync", { room: savedRoom });
+        socket.emit("join_room", {
+          roomName: savedRoom,
+          userName: savedName.trim(),
+          roomPassword: sessionStorage.getItem(roomPasswordKey(savedRoom)) || "",
+        });
       }
     });
     socket.on("disconnect", () => setConnected(false));
-
-    socket.on("reconnect", () => {
-      const ss = loadSession();
-      const savedRoom = roomNameRef.current || ss?.roomName;
-      const savedName = myNameRef.current || ss?.myName;
-      if (savedRoom && savedName) {
-        socket.emit("join_room", { roomName: savedRoom, userName: savedName.trim() });
-        socket.emit("request_sync", { room: savedRoom });
+    socket.on("connect_error", (error) => {
+      setConnected(false);
+      if (error.message === "unauthorized") {
+        localStorage.removeItem(authTokenKey);
+        setAuthToken("");
+        setIsAuthenticated(false);
+        setAuthError("Oturumun süresi doldu. Yeniden giriş yap.");
       }
     });
 
@@ -398,6 +458,7 @@ export default function App() {
 
     socket.on("room_full", (data) => {
       setLobbyError(data.message || "Bu oda dolu. Farklı bir kod deneyin.");
+      sessionStorage.removeItem(roomPasswordKey(roomNameRef.current));
       setJoined(false);
       setRoomName("");
       saveSession(null);
@@ -405,6 +466,10 @@ export default function App() {
 
     socket.on("wrong_password", (data) => {
       setLobbyError(data.message || "Yanlış oda şifresi.");
+      sessionStorage.removeItem(roomPasswordKey(roomNameRef.current));
+      saveSession(null);
+      setJoined(false);
+      setLobbyMode("join");
     });
 
     socket.on("webrtc_signal_received", (data) => {
@@ -644,7 +709,7 @@ export default function App() {
       emojiTimeoutRefs.current.forEach(id => clearTimeout(id));
       emojiTimeoutRefs.current = [];
     };
-  }, []);
+  }, [isAuthenticated, authToken]);
 
   useEffect(() => { roomNameRef.current = roomName; }, [roomName]);
   useEffect(() => { videoFileMetaRef.current = videoFileMeta; }, [videoFileMeta]);
@@ -758,9 +823,9 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (isAuthenticated && joined && roomName && myName) saveSession({ roomName, myName });
+    if (joined && roomName && myName) saveSession({ roomName, myName });
     else saveSession(null);
-  }, [isAuthenticated, joined, roomName, myName]);
+  }, [joined, roomName, myName]);
 
   useEffect(() => {
     const el = chatEndRef.current?.parentElement;
@@ -898,6 +963,7 @@ export default function App() {
 
   const cleanupWebRTC = () => {
     console.log("[WebRTC] Temizleniyor...");
+    ++initWebRTCGenerationRef.current;
     if (iceRetryTimeoutRef.current) { clearTimeout(iceRetryTimeoutRef.current); iceRetryTimeoutRef.current = null; }
     if (peerRef.current) { peerRef.current.destroy(); peerRef.current = null; }
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
@@ -960,7 +1026,10 @@ export default function App() {
 
   const fetchTurnCredentials = async () => {
     try {
-      const response = await fetch("/api/turn-credentials", { credentials: "omit" });
+      const response = await fetch("/api/turn-credentials", {
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      });
+      if (!response.ok) throw new Error(`TURN HTTP ${response.status}`);
       const data = await response.json();
       if (data && data.iceServers && data.iceServers.length > 0) {
         setTurnIceServers(data.iceServers);
@@ -989,7 +1058,7 @@ export default function App() {
   const initWebRTC = async (initiator, initialSignal = null, sendVideo = false, skipDestroy = false) => {
     // Debounce: 500ms içinde tekrar çağırlırsa atla
     const now = Date.now();
-    if (now - lastInitTimeRef.current < 500) {
+    if (now - lastInitTimeRef.current < 500 && !initialSignal && !peerRef.current && initWebRTCRef.current) {
       console.log(`[WebRTC] Debounce: son init'den ${(now - lastInitTimeRef.current)}ms geçti, atlanıyor`);
       return;
     }
@@ -1004,6 +1073,7 @@ export default function App() {
 
     // TURN credentials'ını fetch et (STUN yedek olarak bırakılacak)
     const dynamicIceServers = await fetchTurnCredentials();
+    if (generation !== initWebRTCGenerationRef.current) return;
     const peerIceServers = [...DEFAULT_ICE_SERVERS, ...dynamicIceServers];
 
     const createPeer = (stream) => {
@@ -1104,19 +1174,36 @@ export default function App() {
 
     if (streamRef.current) {
       if (sendVideo && !streamRef.current.getVideoTracks().length) {
-        navigator.mediaDevices.getUserMedia({ video: true })
+        navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 24 } },
+        })
           .then((videoStream) => {
+            if (generation !== initWebRTCGenerationRef.current || !streamRef.current) {
+              videoStream.getTracks().forEach(track => track.stop());
+              return;
+            }
             const videoTrack = videoStream.getVideoTracks()[0];
             if (videoTrack) streamRef.current.addTrack(videoTrack);
             createPeer(streamRef.current);
           })
-          .catch(() => createPeer(streamRef.current));
+          .catch(() => {
+            if (generation === initWebRTCGenerationRef.current) createPeer(streamRef.current);
+          });
       } else {
         createPeer(streamRef.current);
       }
     } else {
       navigator.mediaDevices.getUserMedia({ audio: true, video: sendVideo })
         .then((stream) => {
+          if (generation !== initWebRTCGenerationRef.current) {
+            stream.getTracks().forEach(track => track.stop());
+            return;
+          }
+          if (streamRef.current && streamRef.current !== stream) {
+            stream.getTracks().forEach(track => track.stop());
+            createPeer(streamRef.current);
+            return;
+          }
           console.log(`[WebRTC] Stream alındı. Audio: ${stream.getAudioTracks().length}, Video: ${stream.getVideoTracks().length}`);
           streamRef.current = stream;
           setMicEnabled(true);
@@ -1125,8 +1212,10 @@ export default function App() {
         })
         .catch((err) => {
           console.error("[WebRTC] getUserMedia hatası:", err.message);
-          initWebRTCRef.current = false;
-          setSystemNotice("Mikrofon/kamera erişimine izin vermeniz gerekiyor.");
+          if (generation === initWebRTCGenerationRef.current) {
+            initWebRTCRef.current = false;
+            setSystemNotice("Mikrofon/kamera erişimine izin vermeniz gerekiyor.");
+          }
         });
     }
   };
@@ -1354,12 +1443,14 @@ export default function App() {
     setLobbyError("");
     const code = String(Math.floor(10000 + Math.random() * 90000));
     setRoomName(code);
+    if (roomPassword.trim()) sessionStorage.setItem(roomPasswordKey(code), roomPassword.trim());
     socketRef.current.emit("join_room", { roomName: code, userName: myName.trim(), roomPassword: roomPassword.trim() });
   };
 
   const handleJoinRoom = () => {
     if (!roomName.trim() || !myName.trim()) return;
     setLobbyError("");
+    if (roomPassword.trim()) sessionStorage.setItem(roomPasswordKey(roomName.trim()), roomPassword.trim());
     socketRef.current.emit("join_room", { roomName: roomName.trim(), userName: myName.trim(), roomPassword: roomPassword.trim() });
   };
 
@@ -1531,6 +1622,15 @@ export default function App() {
     };
     tmpVideo.src = url;
 
+    if (file.size > MAX_EMBEDDED_SUBTITLE_FILE_SIZE) {
+      setSubtitleTracks([]);
+      setEmbeddedCues([]);
+      setActiveEmbeddedTrack(null);
+      setSubtitleExtracting(false);
+      setSystemNotice("Büyük videoda gömülü altyazı çıkarma atlandı. İstersen .srt veya .vtt dosyası seçebilirsin.");
+      return;
+    }
+
     setSubtitleExtracting(true);
     setEmbeddedCues([]);
     setActiveEmbeddedTrack(null);
@@ -1680,6 +1780,7 @@ export default function App() {
   // ---------------------------------------------------------------
   const handleLeaveRoom = () => {
     if (!confirm("Odadan ayrılmak istediğine emin misin?")) return;
+    sessionStorage.removeItem(roomPasswordKey(roomName.trim()));
     cleanupWebRTC();
     if (socketRef.current) {
       socketRef.current.emit("leave_room", { room: roomName.trim() });
@@ -1722,6 +1823,7 @@ export default function App() {
   // ŞİFRE EKRANI
   // =================================================================
   if (!isAuthenticated) {
+    if (authChecking) return <div className="lobby"><div className="lobby-card">Sunucuya bağlanılıyor...</div></div>;
     return (
       <div className="lobby">
         {/* Theme toggle */}
@@ -1742,17 +1844,16 @@ export default function App() {
             placeholder="Şifreyi giriniz"
             value={authPass}
             onChange={(e) => setAuthPass(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && authPass === (import.meta.env.VITE_AUTH_PASS || "12345")) setIsAuthenticated(true); }}
+            onKeyDown={(e) => { if (e.key === "Enter") submitAuth(); }}
           />
           <button
             className="enter-btn"
-            onClick={() => {
-              if (authPass === (import.meta.env.VITE_AUTH_PASS || "12345")) setIsAuthenticated(true);
-              else alert("Hatalı şifre!");
-            }}
+            onClick={submitAuth}
+            disabled={authBusy}
           >
             Giriş Yap
           </button>
+          {authError && <div className="lobby-error">⚠️ {authError}</div>}
         </div>
       </div>
     );

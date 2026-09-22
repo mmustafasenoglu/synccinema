@@ -50,13 +50,21 @@ beforeEach(() => {
   mocks.peers.length = 0;
   mocks.socket = null;
   audioStream.tracks = [audioTrack];
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ json: async () => ({ iceServers: [] }) }));
+  vi.stubGlobal('fetch', vi.fn(async (url) => ({
+    ok: true,
+    json: async () => url.endsWith('/auth/status')
+      ? { required: true, authenticated: false }
+      : url.endsWith('/auth')
+        ? { ok: true, token: 'test-token' }
+        : { iceServers: [] },
+  })));
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
   Object.defineProperty(navigator, 'mediaDevices', {
     configurable: true,
     value: { getUserMedia: vi.fn().mockResolvedValueOnce(audioStream).mockResolvedValueOnce({ getVideoTracks: () => [videoTrack] }) },
   });
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -67,8 +75,9 @@ afterEach(() => {
 test('turning the camera on and off keeps the voice peer connected', async () => {
   const user = userEvent.setup();
   render(<App />);
-  await user.type(screen.getByPlaceholderText(/Şifreyi giriniz/i), '12345');
+  await user.type(await screen.findByPlaceholderText(/Şifreyi giriniz/i), '12345');
   await user.click(screen.getByText(/Giriş Yap/i));
+  await screen.findByPlaceholderText(/örn. Mustafa/i);
   act(() => mocks.socket.handlers.connect());
   await user.type(screen.getByPlaceholderText(/örn. Mustafa/i), 'TestUser');
   await user.click(screen.getByText(/Oda Oluştur/i));
@@ -95,4 +104,36 @@ test('turning the camera on and off keeps the voice peer connected', async () =>
   expect(videoTrack.stop).toHaveBeenCalled();
   expect(mocks.peers).toHaveLength(1);
   expect(peer.destroy).not.toHaveBeenCalled();
+});
+
+test('leaving the room cancels a pending WebRTC startup', async () => {
+  const user = userEvent.setup();
+  const originalFetch = globalThis.fetch;
+  let finishTurnRequest;
+  vi.stubGlobal('fetch', vi.fn((url, options) => url.endsWith('/turn-credentials')
+    ? new Promise(resolve => { finishTurnRequest = resolve; })
+    : originalFetch(url, options)));
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+  render(<App />);
+  await user.type(await screen.findByPlaceholderText(/Şifreyi giriniz/i), '12345');
+  await user.click(screen.getByText(/Giriş Yap/i));
+  await screen.findByPlaceholderText(/örn. Mustafa/i);
+  act(() => mocks.socket.handlers.connect());
+  await user.type(screen.getByPlaceholderText(/örn. Mustafa/i), 'TestUser');
+  await user.click(screen.getByText(/Oda Oluştur/i));
+  act(() => mocks.socket.handlers.room_status({
+    userCount: 2,
+    users: [{ socketId: 'me', userName: 'TestUser' }, { socketId: 'other', userName: 'Friend' }],
+    isAdmin: true,
+    autoVoice: true,
+    voiceMode: 'initiator',
+  }));
+  await waitFor(() => expect(finishTurnRequest).toBeTypeOf('function'));
+  await user.click(screen.getByText('Çık'));
+  await act(async () => {
+    finishTurnRequest({ ok: true, json: async () => ({ iceServers: [] }) });
+  });
+  expect(mocks.peers).toHaveLength(0);
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
 });

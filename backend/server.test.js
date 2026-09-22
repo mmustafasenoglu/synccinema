@@ -94,28 +94,19 @@ describe("SyncCinema Backend Tests", () => {
     });
   });
 
-  test("webrtc_signal karşı tarafa iletilir", (done) => {
+  test("webrtc_signal karşı tarafa iletilir", async () => {
     const s1 = createClient();
     const s2 = createClient();
-    let s2Ready = false;
-    s1.on("connect", () => {
-      s1.emit("join_room", { roomName: "webrtc-test", userName: "A" });
-    });
-    s2.on("connect", () => {
-      setTimeout(() => s2.emit("join_room", { roomName: "webrtc-test", userName: "B" }), 50);
-    });
-    s2.on("room_status", (data) => {
-      if (data.userCount === 2 && !s2Ready) {
-        s2Ready = true;
-        setTimeout(() => {
-          s1.emit("webrtc_signal", { room: "webrtc-test", signal: { type: "offer", sdp: "test" } });
-        }, 200);
-      }
-    });
-    s2.on("webrtc_signal_received", (data) => {
-      expect(data.signal).toEqual({ type: "offer", sdp: "test" });
-      done();
-    });
+    await Promise.all([s1, s2].map(socket => socket.connected ? Promise.resolve() : waitForEvent(socket, "connect")));
+    const firstJoined = waitForEvent(s1, "room_status");
+    s1.emit("join_room", { roomName: "webrtc-test", userName: "A" });
+    expect((await firstJoined).userCount).toBe(1);
+    const secondJoined = waitForEvent(s2, "room_status");
+    s2.emit("join_room", { roomName: "webrtc-test", userName: "B" });
+    expect((await secondJoined).userCount).toBe(2);
+    const received = waitForEvent(s2, "webrtc_signal_received");
+    s1.emit("webrtc_signal", { room: "webrtc-test", signal: { type: "offer", sdp: "test" } });
+    expect((await received).signal).toEqual({ type: "offer", sdp: "test" });
   });
 
   test("kullanıcı ayrılınca user_left bildirimi gider", (done) => {
@@ -244,28 +235,20 @@ describe("SyncCinema Backend Tests", () => {
     });
   });
 
-  test("odada maksimum 2 kişi bulunabilir", (done) => {
+  test("odada maksimum 2 kişi bulunabilir", async () => {
     const s1 = createClient();
     const s2 = createClient();
     const s3 = createClient();
-    let ready = 0;
-    const check = () => { if (++ready === 3) join(); };
-    const join = () => {
-      s1.emit("join_room", { roomName: "capacity-test-1", userName: "A" });
-      setTimeout(() => {
-        s2.emit("join_room", { roomName: "capacity-test-1", userName: "B" });
-      }, 50);
-      setTimeout(() => {
-        s3.emit("join_room", { roomName: "capacity-test-1", userName: "C" });
-      }, 100);
-    };
-    s1.on("connect", check);
-    s2.on("connect", check);
-    s3.on("connect", check);
-    s3.on("room_full", (data) => {
-      expect(data.message).toContain("dolu");
-      done();
-    });
+    await Promise.all([s1, s2, s3].map(socket => socket.connected ? Promise.resolve() : waitForEvent(socket, "connect")));
+    const firstJoined = waitForEvent(s1, "room_status");
+    s1.emit("join_room", { roomName: "capacity-test-1", userName: "A" });
+    await firstJoined;
+    const secondJoined = waitForEvent(s2, "room_status");
+    s2.emit("join_room", { roomName: "capacity-test-1", userName: "B" });
+    await secondJoined;
+    const rejected = waitForEvent(s3, "room_full");
+    s3.emit("join_room", { roomName: "capacity-test-1", userName: "C" });
+    expect((await rejected).message).toContain("dolu");
   });
 
   // --- REGRESSION TESTS ---

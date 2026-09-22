@@ -6,15 +6,32 @@
 const express = require("express");
 const http = require("http");
 const cors = require("cors");
+const { randomBytes } = require("crypto");
 const { Server } = require("socket.io");
 
 function createServer() {
+  const SITE_PASSWORD = process.env.SITE_PASSWORD || "";
+  const AUTH_TTL_MS = 24 * 60 * 60 * 1000;
+  const authTokens = new Map();
+  const authFailures = new Map();
+  const isValidToken = (token) => {
+    if (!SITE_PASSWORD) return true;
+    if (typeof token !== "string") return false;
+    const expiresAt = authTokens.get(token);
+    if (!expiresAt) return false;
+    if (expiresAt <= Date.now()) {
+      authTokens.delete(token);
+      return false;
+    }
+    return true;
+  };
   const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "http://localhost:5173")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
 
   const app = express();
+  app.set("trust proxy", 1);
   app.use(cors({ origin: (origin, callback) => {
     if (!origin || ALLOWED_ORIGINS.includes(origin) || ALLOWED_ORIGINS.includes("*")) callback(null, true);
     else callback(new Error("Not allowed by CORS"));
@@ -31,6 +48,11 @@ function createServer() {
       },
       methods: ["GET", "POST"],
     },
+  });
+
+  io.use((socket, next) => {
+    if (isValidToken(socket.handshake.auth?.siteToken)) return next();
+    return next(new Error("unauthorized"));
   });
 
   // Basit sağlık kontrolü endpoint'i
@@ -80,6 +102,7 @@ function createServer() {
         delete roomTimers[roomName];
         delete roomMediaType[roomName];
         delete roomYouTubeUrl[roomName];
+        delete roomPasswords[roomName];
         console.log(`[timer] Oda zaman aşımı ile silindi: ${roomName}`);
       }
     }, ROOM_TIMEOUT_MS);
@@ -435,35 +458,53 @@ function createServer() {
   });
 
   // --- SITE AUTH ENDPOINT ---
-  const SITE_PASSWORD = process.env.SITE_PASSWORD || "";
   app.use(express.json());
-  if (SITE_PASSWORD) {
-    app.post("/api/auth", (req, res) => {
-      const { password } = req.body || {};
-      if (password === SITE_PASSWORD) {
-        res.json({ ok: true });
-      } else {
-        res.status(401).json({ ok: false, message: "Yanlış şifre." });
-      }
-    });
-  }
+  app.get("/api/auth/status", (req, res) => {
+    const token = req.get("Authorization")?.replace(/^Bearer /, "");
+    res.json({ required: Boolean(SITE_PASSWORD), authenticated: isValidToken(token) });
+  });
+  app.post("/api/auth", (req, res) => {
+    const now = Date.now();
+    const clientAddress = req.ip;
+    for (const [address, entry] of authFailures) {
+      if (entry.until <= now) authFailures.delete(address);
+    }
+    const attempts = authFailures.get(clientAddress) || { count: 0, until: now + 15 * 60 * 1000 };
+    if (SITE_PASSWORD && attempts.count >= 10) {
+      return res.status(429).json({ ok: false, message: "Çok fazla deneme. Daha sonra tekrar dene." });
+    }
+    if (SITE_PASSWORD && req.body?.password !== SITE_PASSWORD) {
+      attempts.count++;
+      authFailures.set(clientAddress, attempts);
+      return res.status(401).json({ ok: false, message: "Yanlış şifre." });
+    }
+    authFailures.delete(clientAddress);
+    const token = SITE_PASSWORD ? randomBytes(32).toString("hex") : null;
+    if (token) authTokens.set(token, Date.now() + AUTH_TTL_MS);
+    return res.json({ ok: true, token });
+  });
 
   // --- TURN CREDENTIALS ENDPOINT ---
   app.get("/api/turn-credentials", async (req, res) => {
+    const authToken = req.get("Authorization")?.replace(/^Bearer /, "");
+    if (!isValidToken(authToken)) return res.status(401).json({ error: "unauthorized" });
+    res.set("Cache-Control", "no-store");
     try {
       const cfToken = process.env.CLOUDFLARE_TURN_TOKEN;
-      const keyId = process.env.CLOUDFLARE_TURN_KEY_ID || "1";
+      const keyId = process.env.CLOUDFLARE_TURN_KEY_ID;
 
-      if (!cfToken) {
-        console.warn("[TURN] CLOUDFLARE_TURN_TOKEN tanımlı değil, STUN-only mod");
+      if (!cfToken || !keyId) {
+        console.warn("[TURN] TURN yapılandırması eksik, STUN-only mod");
         return res.json({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
       }
 
       const credResponse = await fetch(
-        `https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate`,
+        `https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(keyId)}/credentials/generate-ice-servers`,
         {
-          method: "GET",
-          headers: { Authorization: `Bearer ${cfToken}` },
+          method: "POST",
+          headers: { Authorization: `Bearer ${cfToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ ttl: 86400 }),
+          signal: AbortSignal.timeout(5000),
         }
       );
 
@@ -474,16 +515,10 @@ function createServer() {
 
       const credData = await credResponse.json();
 
-      const iceServers = [
-        { urls: "stun:stun.l.google.com:19302" },
-        {
-          urls: "turn:turn.cloudflare.com:3478",
-          username: credData.username,
-          credential: credData.credential,
-        },
-      ];
-
-      res.json({ iceServers });
+      if (!Array.isArray(credData.iceServers) || !credData.iceServers.length) {
+        throw new Error("Cloudflare TURN response missing iceServers");
+      }
+      res.json({ iceServers: credData.iceServers });
     } catch (error) {
       console.error("[TURN] Credentials hatası:", error);
       res.json({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });

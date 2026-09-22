@@ -35,12 +35,11 @@ A real-time synchronized video watching application for two remote users. Both p
 
 ```bash
 cd backend
-cp .env.example .env   # configure allowed origins
 npm install
-npm start
+SITE_PASSWORD=choose-a-private-password npm start
 ```
 
-Server runs on port 3001.
+Server runs on port 3001. For a public deployment, also set `ALLOWED_ORIGINS` to the frontend URL. The plain Node.js start script reads environment variables from the shell; it does not load a backend `.env` file automatically.
 
 ### 2) Frontend
 
@@ -53,6 +52,8 @@ npm run dev
 Open `http://localhost:5173` in your browser.
 
 ### 3) Docker
+
+Create a project-root `.env` file (you can copy `backend/.env.example`) and set `SITE_PASSWORD` to a private value. Set `ALLOWED_ORIGINS` to the public frontend URL when deploying remotely. Docker Compose requires `SITE_PASSWORD` so a deployment cannot accidentally expose the private beta without authentication.
 
 ```bash
 docker compose up -d --build
@@ -67,15 +68,17 @@ Frontend: `http://localhost:8050`, Backend: internal port 3001.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `ALLOWED_ORIGINS` | Comma-separated CORS origins | `http://localhost:5173` |
-| `SITE_PASSWORD` | Optional site entry password | _(empty = no auth)_ |
+| `SITE_PASSWORD` | Optional server-verified site entry password; authenticated sessions last 24 hours | _(empty = no auth)_ |
 | `CLOUDFLARE_TURN_TOKEN` | Cloudflare TURN API token | _(empty = STUN-only)_ |
-| `CLOUDFLARE_TURN_KEY_ID` | Cloudflare TURN key ID | `1` |
+| `CLOUDFLARE_TURN_KEY_ID` | Cloudflare TURN key ID | _(empty = STUN-only)_ |
 
 ### Frontend (build args)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `VITE_SOCKET_URL` | Socket.io server URL | `/` |
+
+When `SITE_PASSWORD` is set, the frontend obtains a short-lived login token from `/api/auth`; Socket.IO and TURN requests require that token. Room passwords are kept for the current browser tab so a page refresh can rejoin a protected room. Embedded subtitle extraction is skipped for files above 256 MiB to avoid copying a large movie into browser/WASM memory; external SRT/VTT subtitles remain available.
 
 ## How It Works
 

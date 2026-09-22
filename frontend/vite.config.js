@@ -21,6 +21,7 @@ export default defineConfig({
     global: 'globalThis'
   },
   server: {
+    proxy: { '/api': 'http://localhost:3001' },
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
